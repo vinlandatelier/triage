@@ -132,11 +132,21 @@ setup:
     bun install --frozen-lockfile
 
 # Run every quality gate.
-check:
+check: fmt-check clippy deny machete test
+
+fmt-check:
     cargo fmt --all --check
+
+clippy:
     cargo clippy --workspace --all-targets --locked -- -D warnings
+
+deny:
     cargo deny check
+
+machete:
     cargo machete
+
+test:
     cargo nextest run --workspace --locked --no-tests=pass
     bun run lint
     bun run typecheck

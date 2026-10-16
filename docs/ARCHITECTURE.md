@@ -45,6 +45,8 @@ triage/
 
 ## Rules
 
+A rule that names a check (CI, `just`, prek) holds now; the check enforces it once the ticket that adds the check lands.
+
 1. One crate until a trigger fires: a heavy independent dependency set, a second binary, or incremental `cargo check` over 10 s. Then split the module into a new crate under `crates/<name>`.
 2. Product code lives in `features/<name>/` with exactly `mod.rs http.rs service.rs repo.rs model.rs`. Infra stays top level. CI checks the shape.
 3. Direction is `http → service → repo`. `http.rs` never imports `sqlx`; `repo.rs` never imports `axum`. CI greps for it.

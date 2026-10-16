@@ -6,6 +6,8 @@ Cross-initiative facts. The loop reads this file every session. Any PR that adds
 
 One binary, `triage`, is daemon and CLI. A React SPA is served by the daemon in release and by Vite in dev. Discord is the phone surface. Claude Code runs as a subprocess with the user's own login; there are no API keys.
 
+The tree is the target layout. Files appear as the tickets that need them land.
+
 ```
 triage/
   Cargo.toml  rust-toolchain.toml  rustfmt.toml  deny.toml  bacon.toml  justfile
@@ -43,11 +45,11 @@ triage/
 
 ## Rules
 
-1. One crate until a trigger fires: a heavy independent dependency set, a second binary, or incremental `cargo check` over 10 s. Then `git mv` into `crates/<name>`.
+1. One crate until a trigger fires: a heavy independent dependency set, a second binary, or incremental `cargo check` over 10 s. Then split the module into a new crate under `crates/<name>`.
 2. Product code lives in `features/<name>/` with exactly `mod.rs http.rs service.rs repo.rs model.rs`. Infra stays top level. CI checks the shape.
 3. Direction is `http → service → repo`. `http.rs` never imports `sqlx`; `repo.rs` never imports `axum`. CI greps for it.
 4. All fallible code returns `crate::error::Result<T>`. `AppError` is the only error type that crosses a feature boundary. `anyhow` only in `main.rs`, `cli.rs`, `build.rs`.
-5. `unwrap`, `expect`, `dbg!`, `todo!`, `println!` are clippy-denied in `src/`. `?` and `tracing` instead.
+5. `unwrap`, `expect`, `dbg!`, `todo!`, `println!`, `eprintln!` are clippy-denied in every target, tests included. `?` and `tracing` instead.
 6. All SQL lives in `repo.rs`, through `sqlx` macros, offline data committed in `.sqlx/`. Migrations are forward-only `.sql` files applied at startup.
 7. Every path comes from `config::Paths`. No `~` or hardcoded dirs anywhere else.
 8. `std::env::var` appears only in `config.rs`.

@@ -18,8 +18,8 @@ permissions:
 jobs:
   respond:
     if: >-
-      contains(github.event.comment.body, '@abyanbot') ||
-      contains(github.event.review.body, '@abyanbot')
+      contains(github.event.comment.body, '@abyan-cc') ||
+      contains(github.event.review.body, '@abyan-cc')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/create-github-app-token@v1
@@ -37,5 +37,5 @@ jobs:
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           github_token: ${{ steps.app.outputs.token }}
-          trigger_phrase: "@abyanbot"
+          trigger_phrase: "@abyan-cc"
           claude_args: "--model claude-opus-5-5 --max-turns 60"

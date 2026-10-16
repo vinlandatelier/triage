@@ -1,0 +1,22 @@
+default_job = "check"
+
+[jobs.check]
+command = ["cargo", "check", "--workspace", "--all-targets"]
+need_stdout = false
+
+[jobs.clippy]
+command = ["cargo", "clippy", "--workspace", "--all-targets", "--", "-D", "warnings"]
+need_stdout = false
+
+[jobs.nextest]
+command = ["cargo", "nextest", "run", "--workspace", "--no-tests=pass", "--hide-progress-bar", "--failure-output", "final"]
+need_stdout = true
+analyzer = "nextest"
+
+# Runs `--help` until the `serve` subcommand lands.
+[jobs.run-server]
+command = ["cargo", "run", "--", "--help"]
+need_stdout = true
+allow_warnings = true
+background = false
+on_change_strategy = "kill_then_restart"

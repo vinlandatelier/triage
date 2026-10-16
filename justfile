@@ -130,6 +130,7 @@ setup:
     fi
 
     bun install --frozen-lockfile
+    prek install
 
 # Run every quality gate.
 check: fmt-check clippy deny machete test

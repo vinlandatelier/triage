@@ -8,6 +8,7 @@ subprocess with the user's own login. No API keys.
 
 - Commits and PR titles: Conventional Commits, `type(scope): imperative summary`.
 - One issue, one PR, branch named `<issue>-<slug>`, body contains `Closes #<issue>`.
+  Chores with no issue use `<type>-<slug>`.
 - When a change depends on another unmerged PR, stack it with `gh stack` instead
   of waiting or bundling. Prefer a stack of small PRs over one large PR whenever
   the pieces are reviewable on their own.

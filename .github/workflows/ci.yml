@@ -70,4 +70,6 @@ jobs:
       - uses: taiki-e/install-action@v2
         with:
           tool: just,cargo-nextest
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install --frozen-lockfile
       - run: just test

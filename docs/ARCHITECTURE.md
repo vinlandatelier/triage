@@ -97,11 +97,15 @@ Binary, crate, workspace: `triage`. Env prefix: `TRIAGE_`. `ProjectDirs::from("s
 | logs | `~/Library/Logs/triage/` | `$XDG_STATE_HOME/triage/logs/` |
 | config | `~/Library/Application Support/studio.triage/` | `$XDG_CONFIG_HOME/triage/` |
 
-`--data-dir <path>` or `TRIAGE_DATA_DIR` puts everything under one directory. Tests always use it.
+`--data-dir <path>` or `TRIAGE_DATA_DIR` puts everything under one directory: data at its root, then `logs/` and `config/`. The flag wins over the env var and logs a debug line when it does. Tests always use it. `Paths::resolve` creates missing dirs with mode 0700 and exits 1 when the data dir is not writable or there is no `HOME`.
+
+## Config
+
+`config::Config` is extracted by figment from `TRIAGE_*` env vars, with `.env` read in debug builds only. `config::REQUIRED` lists vars that must be set; the preflight names every missing one in one error. A missing or malformed var exits 2 naming the var. Wrap secret values in `config::Secret<T>`, whose `Debug` prints `[redacted]`. Until `error.rs` lands, config code returns `config::Result`.
 
 ## Observability
 
-`tracing` is the instrumentation. Three sinks: stderr columnar for humans, JSONL file for agents, OTLP when `OTEL_EXPORTER_OTLP_ENDPOINT` is set. Every HTTP request opens a span with `request_id`, `method`, `path`, `status`. A future `agent_run` span carries `session_id`, `model`, `cost_usd`, `num_turns`.
+`tracing` is the instrumentation. Three sinks: stderr columnar for humans, JSONL file for agents, OTLP when `TRIAGE_OTEL_ENDPOINT` is set. Every HTTP request opens a span with `request_id`, `method`, `path`, `status`. A future `agent_run` span carries `session_id`, `model`, `cost_usd`, `num_turns`.
 
 ## Quality gates
 

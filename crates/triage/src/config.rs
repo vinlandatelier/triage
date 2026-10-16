@@ -143,6 +143,36 @@ impl Config {
             _ => Ok(()),
         }
     }
+
+    /// Each env var with its value, formatted through `Debug` so [`Secret`] fields print redacted.
+    pub fn entries(&self) -> Vec<(String, String)> {
+        // Exhaustive so a new field fails to compile until it is listed here.
+        let Self {
+            port,
+            log_level,
+            log_file_level,
+            log_format,
+            otel_endpoint,
+        } = self;
+        // `Url`'s `Debug` dumps every component; the string form is what the user set.
+        let otel_endpoint = otel_endpoint.as_ref().map(Url::as_str);
+        let fields: [(&str, &dyn fmt::Debug); 5] = [
+            ("port", port),
+            ("log_level", log_level),
+            ("log_file_level", log_file_level),
+            ("log_format", log_format),
+            ("otel_endpoint", &otel_endpoint),
+        ];
+        fields
+            .into_iter()
+            .map(|(key, value)| {
+                (
+                    format!("{ENV_PREFIX}{}", key.to_uppercase()),
+                    format!("{value:?}"),
+                )
+            })
+            .collect()
+    }
 }
 
 /// Serde stops at the first missing field, so this names every absent var at once.
@@ -447,6 +477,26 @@ mod tests {
         let secret = Secret("hunter2");
         assert_eq!(format!("{secret:?}"), "[redacted]");
         assert_eq!(*secret.expose(), "hunter2");
+    }
+
+    #[test]
+    fn entries_name_every_var() -> TestResult {
+        let config = Config {
+            otel_endpoint: Some(Url::parse("http://localhost:4317")?),
+            ..Config::default()
+        };
+        assert_eq!(
+            config.entries(),
+            [
+                ("TRIAGE_PORT", "7311"),
+                ("TRIAGE_LOG_LEVEL", "\"info\""),
+                ("TRIAGE_LOG_FILE_LEVEL", "\"info,triage=debug\""),
+                ("TRIAGE_LOG_FORMAT", "Columns"),
+                ("TRIAGE_OTEL_ENDPOINT", "Some(\"http://localhost:4317/\")"),
+            ]
+            .map(|(k, v)| (k.to_owned(), v.to_owned()))
+        );
+        Ok(())
     }
 
     #[test]

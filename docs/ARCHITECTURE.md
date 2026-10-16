@@ -11,6 +11,7 @@ The tree is the target layout. Files appear as the tickets that need them land.
 ```
 triage/
   Cargo.toml  rust-toolchain.toml  rustfmt.toml  deny.toml  bacon.toml  justfile
+  package.json  bun.lock   bun workspace, member web/
   prek.toml  renovate.json  .github/workflows/
   crates/triage/
     Cargo.toml  build.rs  migrations/  .sqlx/  openapi.json  schema.sql
@@ -30,7 +31,7 @@ triage/
     src/bin/gen_openapi.rs
     tests/api/           main.rs helpers.rs <feature>.rs
   web/
-    package.json vite.config.ts biome.json tsconfig.json env.ts prek.toml
+    package.json vite.config.ts biome.json tsconfig.json env.ts index.html prek.toml
     src/
       main.tsx routeTree.gen.ts
       routes/            file-based
@@ -70,7 +71,7 @@ A rule that names a check (CI, `just`, prek) holds now; the check enforces it on
 
 ## Dev tools
 
-`just setup` installs or reports each one: rustup and the pinned toolchain, cargo-binstall, cargo-nextest, cargo-deny, cargo-machete, sqlx-cli, bacon, prek, bun, Node 24, actionlint. Cargo tools come from `cargo binstall`, falling back to `cargo install`. macOS uses Homebrew for the rest; Linux uses official installers or release binaries.
+`just setup` installs or reports each one: rustup and the pinned toolchain, cargo-binstall, cargo-nextest, cargo-deny, cargo-machete, sqlx-cli, bacon, prek, bun, Node 24, actionlint. Cargo tools come from `cargo binstall`, falling back to `cargo install`. macOS uses Homebrew for the rest; Linux uses official installers or release binaries. It ends with `bun install` at the root.
 
 - `just` ≥ 1.42, enforced at the top of the `justfile`.
 - `bacon.toml` holds the watch jobs. `just dev` runs `run-server`.
@@ -80,7 +81,7 @@ A rule that names a check (CI, `just`, prek) holds now; the check enforces it on
 
 Rust: tokio, axum, tower, tower-http, hyper, serde, serde_json, sqlx, utoipa, utoipa-axum, utoipa-scalar, tracing, tracing-subscriber, tracing-appender, tracing-opentelemetry, opentelemetry, opentelemetry_sdk, opentelemetry-otlp, figment, dotenvy, thiserror, anyhow, problem_details, clap, clap_complete, directories, rust-embed, mime_guess, ulid, time, uuid, url. Dev: axum-test, insta, tempfile, pretty_assertions, tokio-test.
 
-Web: react, react-dom, @tanstack/react-query, @tanstack/react-router, @tanstack/router-plugin, @hey-api/openapi-ts, zod, tailwindcss, shadcn and its vendored deps, class-variance-authority, clsx, tailwind-merge, lucide-react. Dev: vite, @vitejs/plugin-react, typescript, @biomejs/biome, vitest, @testing-library/react, @testing-library/user-event, msw, @playwright/test, @julr/vite-plugin-validate-env, knip, react-doctor, ts-reset.
+Web: react, react-dom, @tanstack/react-query, @tanstack/react-router, @tanstack/router-plugin, @hey-api/openapi-ts, zod, tailwindcss, shadcn and its vendored deps, class-variance-authority, clsx, tailwind-merge, lucide-react. Dev: vite, @vitejs/plugin-react, typescript, @biomejs/biome, vitest, @testing-library/react, @testing-library/user-event, msw, @playwright/test, @julr/vite-plugin-validate-env, knip, react-doctor, ts-reset (`@total-typescript/ts-reset`), @types/react, @types/react-dom.
 
 ## Identifiers
 

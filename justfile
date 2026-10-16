@@ -129,6 +129,8 @@ setup:
         exit 1
     fi
 
+    bun install
+
 # Run every quality gate.
 check:
     cargo fmt --all --check
@@ -136,10 +138,13 @@ check:
     cargo deny check
     cargo machete
     cargo nextest run --workspace --locked --no-tests=pass
+    bun run lint
+    bun run typecheck
 
 # Apply automatic fixes.
 fix:
     cargo fmt --all
+    bun run fix
 
 # Run the server and restart it on change.
 dev:

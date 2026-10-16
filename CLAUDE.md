@@ -14,6 +14,8 @@ subprocess with the user's own login. No API keys.
   the pieces are reviewable on their own.
 - Never force push. Never push directly to `master`. Never merge; the maintainer merges.
 - Squash merge is the repo policy, so keep each PR to one logical change.
+- PR body: `Closes #N`, then `## what` (bullets), `## verify` (numbered steps),
+  and `## why` / `## notes` only when needed. Bullets over paragraphs.
 - Comments explain non-obvious why only. No restating code, no banners.
 - Documentation names no individual people. Use "the maintainer" or "the user".
 

@@ -23,6 +23,8 @@ pub enum AppError {
     PayloadTooLarge,
     #[error(transparent)]
     Internal(#[from] anyhow::Error),
+    #[error(transparent)]
+    Db(#[from] sqlx::Error),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -46,7 +48,7 @@ impl AppError {
             Self::Validation(_) => StatusCode::UNPROCESSABLE_ENTITY,
             Self::Conflict(_) => StatusCode::CONFLICT,
             Self::PayloadTooLarge => StatusCode::PAYLOAD_TOO_LARGE,
-            Self::Internal(_) => StatusCode::INTERNAL_SERVER_ERROR,
+            Self::Internal(_) | Self::Db(_) => StatusCode::INTERNAL_SERVER_ERROR,
         }
     }
 
@@ -56,7 +58,7 @@ impl AppError {
             Self::Validation(_) => "validation",
             Self::Conflict(_) => "conflict",
             Self::PayloadTooLarge => "payload-too-large",
-            Self::Internal(_) => "internal",
+            Self::Internal(_) | Self::Db(_) => "internal",
         }
     }
 
@@ -66,7 +68,7 @@ impl AppError {
             Self::Validation(_) => "Validation failed",
             Self::Conflict(_) => "Conflict",
             Self::PayloadTooLarge => "Payload too large",
-            Self::Internal(_) => "Internal error",
+            Self::Internal(_) | Self::Db(_) => "Internal error",
         }
     }
 
@@ -93,9 +95,15 @@ impl AppError {
 
 impl IntoResponse for AppError {
     fn into_response(self) -> Response {
-        if let Self::Internal(err) = &self {
-            let err: &(dyn std::error::Error + 'static) = err.as_ref();
-            tracing::error!(error = err, "internal error");
+        match &self {
+            Self::Internal(err) => {
+                let err: &(dyn std::error::Error + 'static) = err.as_ref();
+                tracing::error!(error = err, "internal error");
+            }
+            Self::Db(err) => {
+                tracing::error!(error = err as &dyn std::error::Error, "database error");
+            }
+            _ => {}
         }
         let problem = self.problem();
         let mut response = problem.clone().into_response();
@@ -175,6 +183,15 @@ mod tests {
                 "title": "Internal error",
             })
         );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn db_is_an_internal_problem() -> TestResult {
+        let (status, _, body) = body(AppError::Db(sqlx::Error::PoolTimedOut)).await?;
+        assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR);
+        assert_eq!(body["type"], "https://triage.studio/problems/internal");
+        assert!(body.get("detail").is_none(), "{body}");
         Ok(())
     }
 }

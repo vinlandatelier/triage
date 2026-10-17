@@ -289,6 +289,10 @@ impl Paths {
         self.data.join("triage.lock")
     }
 
+    pub fn db_file(&self) -> PathBuf {
+        self.data.join("triage.db")
+    }
+
     fn under(dir: PathBuf) -> Self {
         Self {
             logs: dir.join("logs"),

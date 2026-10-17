@@ -12,7 +12,7 @@ use time::OffsetDateTime;
 use tokio::net::TcpListener;
 
 use crate::config::{Config, Paths};
-use crate::telemetry;
+use crate::{store, telemetry};
 
 mod middleware;
 mod probe;
@@ -39,6 +39,8 @@ pub enum Error {
     Runtime(io::Error),
     #[error("server failed: {0}")]
     Serve(io::Error),
+    #[error(transparent)]
+    Store(#[from] store::Error),
 }
 
 impl Error {
@@ -59,15 +61,17 @@ pub fn serve(config: Config, paths: Paths) -> Result<()> {
         .map_err(Error::Runtime)?;
     let result = runtime.block_on(async {
         let shutdown = shutdown_signal();
+        let store = store::open(&paths).await?;
         let (listener, addr) = bind(config.port).await?;
         tracing::info!(
             version = env!("CARGO_PKG_VERSION"),
             %addr,
             data = %paths.data.display(),
+            db = %paths.db_file().display(),
             log = %telemetry::log_file(&paths.logs, OffsetDateTime::now_utc().date()).display(),
             "listening"
         );
-        let state = AppState::new(config, paths);
+        let state = AppState::new(config, paths, store);
         let started = state.started;
         let result = serve_until(listener, router(state), shutdown, DRAIN).await;
         tracing::info!(uptime_s = started.elapsed().as_secs(), "stopped");
@@ -225,15 +229,14 @@ mod tests {
         Ok((listener, addr))
     }
 
-    fn state(dir: &Path) -> AppState {
-        AppState::new(
-            Config::default(),
-            Paths {
-                data: dir.to_path_buf(),
-                logs: dir.join("logs"),
-                config: dir.join("config"),
-            },
-        )
+    async fn state(dir: &Path) -> store::Result<AppState> {
+        let paths = Paths {
+            data: dir.to_path_buf(),
+            logs: dir.join("logs"),
+            config: dir.join("config"),
+        };
+        let store = store::open(&paths).await?;
+        Ok(AppState::new(Config::default(), paths, store))
     }
 
     #[tokio::test]
@@ -243,7 +246,7 @@ mod tests {
         let (stop, stopped) = oneshot::channel::<()>();
         let server = tokio::spawn(serve_until(
             listener,
-            router(state(tmp.path())),
+            router(state(tmp.path()).await?),
             async {
                 let _ = stopped.await;
             },

@@ -96,6 +96,7 @@ mod tests {
     use super::*;
     use crate::config::{Config, Paths};
     use crate::http::{AppState, router};
+    use crate::store;
 
     type TestResult = std::result::Result<(), Box<dyn std::error::Error>>;
 
@@ -109,7 +110,8 @@ mod tests {
         };
         let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).await?;
         let addr = listener.local_addr()?;
-        let app = router(AppState::new(Config::default(), paths));
+        let store = store::open(&paths).await?;
+        let app = router(AppState::new(Config::default(), paths, store));
         let server = tokio::spawn(axum::serve(listener, app).into_future());
         let health = probe_addr(addr, TIMEOUT).await.ok_or("no health")?;
         server.abort();

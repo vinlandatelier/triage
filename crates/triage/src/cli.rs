@@ -9,7 +9,24 @@ use clap_complete::Shell;
 use time::OffsetDateTime;
 
 use crate::config::{self, Config, Paths};
-use crate::telemetry;
+use crate::{http, telemetry};
+
+#[derive(Debug, thiserror::Error)]
+pub enum Error {
+    #[error(transparent)]
+    Config(#[from] config::Error),
+    #[error(transparent)]
+    Http(#[from] http::Error),
+}
+
+impl Error {
+    pub fn exit_code(&self) -> u8 {
+        match self {
+            Self::Config(err) => err.exit_code(),
+            Self::Http(err) => err.exit_code(),
+        }
+    }
+}
 
 #[derive(Debug, Parser)]
 #[command(
@@ -34,6 +51,8 @@ pub struct Cli {
 
 #[derive(Debug, Subcommand)]
 enum Command {
+    /// Run the daemon in the foreground on `127.0.0.1:$TRIAGE_PORT`
+    Serve,
     /// Inspect the resolved configuration
     #[command(subcommand)]
     Config(ConfigCommand),
@@ -73,7 +92,7 @@ impl From<CompletionShell> for Shell {
     }
 }
 
-pub fn run(cli: Cli) -> config::Result<()> {
+pub fn run(cli: Cli) -> Result<(), Error> {
     // Completions must work before config exists, e.g. during install.
     let Cli { data_dir, command } = cli;
     if let Some(Command::Completions { shell }) = command {
@@ -87,6 +106,7 @@ pub fn run(cli: Cli) -> config::Result<()> {
     config::log_data_dir_override(data_dir.as_deref());
     tracing::debug!(?config, ?paths, "startup");
     match command {
+        Some(Command::Serve) => http::serve(config, paths)?,
         Some(Command::Config(ConfigCommand::Show)) => show(&config, &paths),
         Some(Command::Logs(LogsCommand::Path)) => logs_path(&paths),
         Some(Command::Completions { .. }) | None => {}

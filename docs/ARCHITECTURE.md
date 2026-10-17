@@ -112,7 +112,7 @@ Binary, crate, workspace: `triage`. Env prefix: `TRIAGE_`. `ProjectDirs::from("s
 
 On Linux, an unset XDG var falls back to `~/.local/share`, `~/.local/state`, or `~/.config`.
 
-`--data-dir <path>` or `TRIAGE_DATA_DIR` puts everything under one directory: data at its root, then `logs/` and `config/`. The flag wins over the env var and logs a debug line when it does. Tests always use it. A relative data dir is made absolute and a leading `~` exits 2. `Paths::resolve` creates missing dirs with mode 0700, tightens an existing one the current user owns to 0700, and exits 1 when the data or config dir is not writable or there is no absolute `HOME`. An unusable logs dir does not fail resolution; telemetry reports it (see Observability).
+`--data-dir <path>` or `TRIAGE_DATA_DIR` puts everything under one directory: data at its root, then `logs/` and `config/`. The flag wins over the env var and logs a debug line when it does. Tests always use it. A relative data dir is made absolute and a leading `~` exits 2. `Paths::resolve` only computes the paths. `Paths::create`, which every command but `config show` and `completions` runs, creates missing dirs with mode 0700, tightens an existing one the current user owns to 0700, and exits 1 when the data or config dir is not writable. No absolute `HOME` exits 1. An unusable logs dir does not fail `create`; telemetry reports it (see Observability).
 
 ## Config
 
@@ -158,7 +158,7 @@ Theme is `system | light | dark`, default `system`, stored in `localStorage` und
 
 ## Observability
 
-`tracing` is the instrumentation. Three sinks: stderr columnar for humans, JSONL file for agents, OTLP when `Config.otel_endpoint` is set. `telemetry::init(&Config, &Paths)` installs the subscriber in `cli::run` after `Paths::resolve`, so anything logged during resolution is lost; `config::log_data_dir_override` re-emits the override line afterwards. `cli::run` holds the returned guard until exit; dropping it stops file logging. Completions skip telemetry.
+`tracing` is the instrumentation. Three sinks: stderr columnar for humans, JSONL file for agents, OTLP when `Config.otel_endpoint` is set. `telemetry::init(&Config, &Paths)` installs the subscriber in `cli::run` after `Paths::create`, so anything logged during resolution is lost; `config::log_data_dir_override` re-emits the override line afterwards. `cli::run` holds the returned guard until exit; dropping it stops file logging. Completions skip telemetry.
 
 - stderr: filter `TRIAGE_LOG_LEVEL`, format `TRIAGE_LOG_FORMAT` (`columns`, `pretty`, `compact`). ANSI colour only when stderr is a TTY.
 - `columns` (default) prints `HH:MM:SS.mmm LEVEL module  message  key=value…  duration  req=<id>`. Time is local, with the offset read per event so DST changes apply; it falls back to UTC. Module is the last segment of the target. Newlines in values print as `⏎` and other control characters as `\xNN`. A value, `req=` included, that contains whitespace, `=`, or `"` prints Debug-quoted, so it cannot pass for another field. Each `source()` of an event's error field adds an indented `└ ` line; the field must be recorded as `error = &err as &dyn Error`, since `%err` and `?err` lose the chain. A closing span prints its name, its fields, and its wall-clock lifetime since creation; span error fields get no `└ ` lines. `req=` comes from the event's own `request_id` or the nearest span that has one. A span below `TRIAGE_LOG_LEVEL` is invisible to this sink, so its `request_id` never reaches `req=`.

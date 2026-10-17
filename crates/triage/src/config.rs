@@ -273,14 +273,13 @@ pub struct Paths {
 }
 
 impl Paths {
-    /// `--data-dir` > `TRIAGE_DATA_DIR` > platform dirs. Creates each dir with mode 0700.
+    /// `--data-dir` > `TRIAGE_DATA_DIR` > platform dirs. Touches nothing on disk; see [`Self::create`].
     pub fn resolve(flag: Option<PathBuf>) -> Result<Self> {
         let home = std::env::var_os("HOME").filter(|v| Path::new(v).is_absolute());
         let paths = match pick_data_dir(flag, data_dir_env()) {
             Some(dir) => Self::under(absolute_data_dir(dir)?),
             None => Self::platform(home)?,
         };
-        paths.create()?;
         Ok(paths)
     }
 
@@ -313,7 +312,8 @@ impl Paths {
         })
     }
 
-    fn create(&self) -> Result<()> {
+    /// Creates each dir with mode 0700 and checks the data and config dirs are writable.
+    pub fn create(&self) -> Result<()> {
         for dir in [&self.data, &self.config] {
             create_dir(dir)?;
             check_writable(dir)?;

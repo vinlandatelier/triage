@@ -135,6 +135,12 @@ pub fn run(cli: Cli) -> Result<ExitCode, Error> {
     }
     let config = Config::load()?;
     let paths = Paths::resolve(data_dir.clone())?;
+    // Read-only, so it never creates a dir or today's log file.
+    if let Some(Command::Config(ConfigCommand::Show)) = command {
+        emit(&config_table(&config, &paths))?;
+        return Ok(ExitCode::SUCCESS);
+    }
+    paths.create()?;
     // Lives until `run` returns, which is when `main` exits.
     let _guard = telemetry::init(&config, &paths);
     config::log_data_dir_override(data_dir.as_deref());
@@ -143,10 +149,6 @@ pub fn run(cli: Cli) -> Result<ExitCode, Error> {
         Some(Command::Status) => status(config.port)?,
         Some(Command::Serve) => {
             http::serve(config, paths)?;
-            ExitCode::SUCCESS
-        }
-        Some(Command::Config(ConfigCommand::Show)) => {
-            emit(&config_table(&config, &paths))?;
             ExitCode::SUCCESS
         }
         Some(Command::Logs(LogsCommand::Path)) => {
@@ -166,7 +168,7 @@ pub fn run(cli: Cli) -> Result<ExitCode, Error> {
             db_sql(&paths, &query, json)?;
             ExitCode::SUCCESS
         }
-        Some(Command::Completions { .. }) | None => ExitCode::SUCCESS,
+        Some(Command::Completions { .. } | Command::Config(_)) | None => ExitCode::SUCCESS,
     })
 }
 

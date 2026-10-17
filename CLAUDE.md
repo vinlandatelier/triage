@@ -22,6 +22,10 @@ subprocess with the user's own login. No API keys.
   and `## why` / `## notes` only when needed. Bullets over paragraphs.
 - Comments explain non-obvious why only. No restating code, no banners.
 - Documentation names no individual people. Use "the maintainer" or "the user".
+- When a question needs a person, mention whoever has the most context: the PR
+  or issue author, a reviewer, the author of the conflicting change. Mention
+  only organization members, never outside contributors or the public. Check
+  `author_association` is `OWNER` or `MEMBER` (`gh api repos/{owner}/{repo}/pulls/<N>`).
 
 ## Restacking
 
@@ -37,7 +41,7 @@ it behind. Restack them:
    - otherwise keep what each PR's issue says that PR must do
 3. If a resolution needs a product decision, or both intents might not survive,
    run `gh stack rebase --abort` and comment on that PR mentioning the
-   maintainer: one line per conflict with file, options, and a recommendation.
+   authors of the conflicting changes: one line per conflict with file, options, and a recommendation.
 4. Run the checks on each branch the rebase changed, then `gh stack push`.
 
 Never merge one branch into another to catch up (`git merge`, `git pull`): a

@@ -53,7 +53,7 @@ A rule that names a check (CI, `just`, prek) holds now; the check enforces it on
 1. One crate until a trigger fires: a heavy independent dependency set, a second binary, or incremental `cargo check` over 10 s. Then split the module into a new crate under `crates/<name>`.
 2. Product code lives in `features/<name>/` with exactly `mod.rs http.rs service.rs repo.rs model.rs`. Infra stays top level. CI checks the shape.
 3. Direction is `http → service → repo`. `http.rs` never imports `sqlx`; `repo.rs` never imports `axum`. CI greps for it.
-4. All fallible code returns `crate::error::Result<T>`. `AppError` is the only error type that crosses a feature boundary. `anyhow` only in `main.rs`, `cli.rs`, `build.rs`, and as the payload built for `AppError::Internal` (`anyhow!`, `.context()`).
+4. All fallible code returns `crate::error::Result<T>`. `AppError` is the only error type that crosses a feature boundary. Startup code (`config`, `http::serve`, `cli`) keeps its own error types, which map to exit codes. `anyhow` only in `main.rs`, `cli.rs`, `build.rs`, and as the payload built for `AppError::Internal` (`anyhow!`, `.context()`).
 5. `unwrap`, `expect`, `dbg!`, `todo!`, `println!`, `eprintln!` are clippy-denied. `clippy.toml` allows all but `todo!` in tests. `?` and `tracing` instead. The one exception: `cli.rs` prints command output to stdout under `#[expect(clippy::print_stdout, reason = "CLI output")]`.
 6. All SQL lives in `repo.rs`, through `sqlx` macros, offline data committed in `.sqlx/`. Migrations are forward-only `.sql` files applied at startup.
 7. Every path comes from `config::Paths`. No `~` or hardcoded dirs anywhere else.
@@ -105,7 +105,7 @@ On Linux, an unset XDG var falls back to `~/.local/share`, `~/.local/state`, or 
 
 ## Config
 
-`config::Config` is extracted by figment from `TRIAGE_*` env vars, with `.env` read in debug builds only. `config::REQUIRED` lists vars that must be set; the preflight names every missing one in one error. A missing or malformed var exits 2 naming the var. Wrap secret values in `config::Secret<T>`, whose `Debug` prints `[redacted]`. Until `error.rs` lands, config code returns `config::Result`. `otel_endpoint` falls back to the standard `OTEL_EXPORTER_OTLP_ENDPOINT` when `TRIAGE_OTEL_ENDPOINT` is unset.
+`config::Config` is extracted by figment from `TRIAGE_*` env vars, with `.env` read in debug builds only. `config::REQUIRED` lists vars that must be set; the preflight names every missing one in one error. A missing or malformed var exits 2 naming the var. Wrap secret values in `config::Secret<T>`, whose `Debug` prints `[redacted]`. Startup errors stay outside `AppError`: config code returns `config::Result`. `otel_endpoint` falls back to the standard `OTEL_EXPORTER_OTLP_ENDPOINT` when `TRIAGE_OTEL_ENDPOINT` is unset.
 
 ## CLI
 
@@ -117,7 +117,7 @@ On Linux, an unset XDG var falls back to `~/.local/share`, `~/.local/state`, or 
 
 ## Errors
 
-Handlers return `crate::error::Result<T>` with `AppError`: `NotFound(String)` 404, `Validation(Vec<FieldError>)` 422, `Conflict(String)` 409, `PayloadTooLarge` 413, `Internal(anyhow::Error)` 500. Each renders as RFC 9457 `application/problem+json` through `problem_details`: `type` is `https://triage.studio/problems/<slug>`, `title`, `status`, `detail` (4xx only, so 5xx never leak internals), `errors` for validation. `Internal` logs `internal error` at error level with `error` recorded as `&dyn Error`, so both sinks show the whole chain. `http::middleware::problems` sits inside `trace`: it caps extractor bodies (`Bytes`, `String`, `Json`, `Form`) at 1 MiB (`error::BODY_LIMIT`), turns a handler panic into an `Internal` 500 with tower-http `CatchPanicLayer`, turns axum's plain-text 413 into a problem, and sets `instance` to the request id. It swaps only the body, so headers the handler set survive. `AppError::into_response` stores the `Problem` in the response extensions so that middleware can add `instance`. Unknown `/api` paths fall back to a `NotFound` problem; other unknown paths return a bare 404, left for the web UI.
+Handlers return `crate::error::Result<T>` with `AppError`: `NotFound(String)` 404, `Validation(Vec<FieldError>)` 422, `Conflict(String)` 409, `PayloadTooLarge` 413, `Internal(anyhow::Error)` 500. Each renders as RFC 9457 `application/problem+json` through `problem_details`: `type` is `https://triage.studio/problems/<slug>`, `title`, `status`, `detail` (4xx only, so 5xx never leak internals), `errors` for validation. `Internal` logs `internal error` at error level with `error` recorded as `&dyn Error`, so both sinks show the whole chain. `http::middleware::problems` sits inside `trace`: it caps extractor bodies (`Bytes`, `String`, `Json`, `Form`) at 1 MiB (`error::BODY_LIMIT`), turns a handler panic into an `Internal` 500 with tower-http `CatchPanicLayer`, turns any plain-text 413 (axum's body-limit rejection) into a problem, and sets `instance` to the request id. It swaps only the body, so headers the handler set survive. `AppError::into_response` stores the `Problem` in the response extensions so that middleware can add `instance`. Unknown `/api` paths fall back to a `NotFound` problem; other unknown paths return a bare 404, left for the web UI.
 
 ## Observability
 

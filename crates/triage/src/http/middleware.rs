@@ -106,7 +106,8 @@ async fn render_problem(request: Request, next: Next) -> Response {
     Response::from_parts(parts, body)
 }
 
-/// axum answers an over-limit body with a plain-text 413; a handler's own 413 is left alone.
+/// axum answers an over-limit body with a plain-text 413. Handlers return 413 as an
+/// `AppError` or a non-text body, which this leaves alone.
 fn is_body_limit_rejection(response: &Response) -> bool {
     response.status() == StatusCode::PAYLOAD_TOO_LARGE
         && response

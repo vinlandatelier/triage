@@ -50,6 +50,35 @@ it behind. Restack them:
 Never merge one branch into another to catch up (`git merge`, `git pull`): a
 merge commit stops `gh stack` from finding the old base for every PR above it.
 
+## Walkthroughs
+
+After pushing a change, decide whether a short recording would help the
+reviewer see it: new or changed screens, interactions, visible states. Skip it
+for anything a recording cannot show. When it helps, without being asked:
+
+1. Write a Playwright spec that clicks through the change in under 20 seconds.
+   Prefer an existing e2e spec. Record with video on and `slowMo` about 300 ms,
+   via a temporary config that extends the repo's.
+2. Install the browser first on a fresh machine or runner:
+   `bunx playwright install --with-deps chromium`. If the branch has no
+   Playwright yet, run it ad hoc (`bunx playwright` or `npx playwright`). Never
+   add it as a dependency for a walkthrough.
+3. Pace it for a human: type with `pressSequentially(text, { delay: 60 })`,
+   not `fill`, and hold about 1 s on each result. The main success flow gets
+   most of the runtime; error states come after it and stay short.
+4. Caption every step with one line in a small fixed `<div>` at the top of the
+   page, set through `page.evaluate` before the step runs. A viewer who never
+   read the PR must follow it. Name any input the viewer cannot see: spaces, a
+   stopped daemon, a mocked failure.
+5. Check it before uploading: tile frames with
+   `ffmpeg -i <video> -vf "fps=2,scale=480:-1,tile=4x4" -frames:v 1 frames.png`
+   and look at them. Every step must show for at least two frames, and nothing
+   may look broken that the PR does not intend. Otherwise re-record, or fix the
+   app.
+6. `scripts/walkthrough.sh <pr> <video>` converts it to a GIF, hosts it on
+   `refs/walkthroughs/<pr>`, and embeds it under `## walkthrough` in the PR body.
+7. Commit none of the temporary spec, config, or video.
+
 ## Review assistant
 
 When triggered from a PR comment: make the requested change on the PR branch,

@@ -19,6 +19,7 @@ export default defineConfig({
   },
   test: {
     environment: "jsdom",
+    // Playwright owns e2e/*.spec.ts.
     include: ["src/**/*.test.{ts,tsx}"],
     setupFiles: ["./src/test/setup.ts"],
     coverage: { exclude: ["src/api/**"] },

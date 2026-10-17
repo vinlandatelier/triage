@@ -10,6 +10,7 @@
     "fix": "biome check --write",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
+    "e2e": "playwright test",
     "doctor": "react-doctor -y --no-telemetry --blocking warning",
     "knip": "knip"
   },
@@ -27,6 +28,7 @@
   "devDependencies": {
     "@biomejs/biome": "2.5.15",
     "@julr/vite-plugin-validate-env": "2.2.2",
+    "@playwright/test": "1.64.1",
     "@tailwindcss/vite": "4.3.3",
     "@tanstack/router-plugin": "1.168.47",
     "@testing-library/dom": "10.4.2",

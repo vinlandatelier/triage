@@ -38,6 +38,8 @@ triage/
     tests/api/           main.rs helpers.rs <feature>.rs
   web/
     package.json vite.config.ts biome.json tsconfig.json env.ts index.html prek.toml components.json
+    playwright.config.ts
+    e2e/               Playwright specs against the release binary
     doctor.config.ts knip.json
     src/
       main.tsx router.ts routeTree.gen.ts error.ts fallbacks.tsx index.css api-config.ts query.ts
@@ -80,7 +82,7 @@ A rule that names a check (CI, `just`, prek) holds now; the check enforces it on
 
 ## Dev tools
 
-`just setup` installs or reports each one: rustup and the pinned toolchain, cargo-binstall, cargo-nextest, cargo-deny, cargo-machete, sqlx-cli, bacon, prek, bun, Node 24, actionlint. Cargo tools come from `cargo binstall`, falling back to `cargo install`. macOS uses Homebrew for the rest; Linux uses official installers or release binaries. `.bun-version` pins bun: `just setup` installs that version when bun is missing and warns when the installed bun differs, and CI reads it through `oven-sh/setup-bun`. It ends with `bun install` at the root and `prek install`, which installs the `pre-commit` and `commit-msg` hooks.
+`just setup` installs or reports each one: rustup and the pinned toolchain, cargo-binstall, cargo-nextest, cargo-deny, cargo-machete, sqlx-cli, bacon, prek, bun, Node 24, actionlint. Cargo tools come from `cargo binstall`, falling back to `cargo install`. macOS uses Homebrew for the rest; Linux uses official installers or release binaries. `.bun-version` pins bun: `just setup` installs that version when bun is missing and warns when the installed bun differs, and CI reads it through `oven-sh/setup-bun`. It ends with `bun install` at the root, `bunx playwright install chromium` from `web/` (the root has no `node_modules/.bin`, so `bunx` there would fetch the latest Playwright instead of the pinned one), and `prek install`, which installs the `pre-commit` and `commit-msg` hooks.
 
 - `just` ≥ 1.42, enforced at the top of the `justfile`.
 - `bacon.toml` holds the watch jobs. `just dev` runs `run-server`.
@@ -177,13 +179,15 @@ Web tests run on Vitest with jsdom, configured in the `test` block of `web/vite.
 | edit hook | Claude Code PostToolUse on Edit/Write | `cargo fmt` or `biome check --write` on that file |
 | prek | commit | fmt, clippy, layout check, biome, react-doctor, schema, openapi, and api client drift, builtin file checks, actionlint, commitlint |
 | `just check` | agent before PR, human anytime | prek set + tsc, nextest, vitest, knip, cargo-deny, cargo-machete, sqlx offline check, api client drift |
-| CI | PR | `just check` split into jobs, ubuntu + macos for nextest, plus `just build-web` |
+| CI | PR | `just check` split into jobs, ubuntu + macos for nextest, plus `just build-web`, then `just e2e` |
 
 `scripts/check-layout.sh` enforces rules 2, 3, and 8. It prints `file: rule` per violation and exits 1 on any. It ignores `//` comments, so docs may name the forbidden items.
 
 `just check-web` runs `bun run lint`, `typecheck`, `doctor`, `knip`, and `test`, in that order. `doctor` is react-doctor with `-y --no-telemetry --blocking warning`, so a warning fails it. `web/doctor.config.ts` keeps the recommended rules and turns off the Socket.dev supply-chain scan, which makes one network request per dependency. react-doctor turns on its `tanstack-query` rules by itself once `@tanstack/react-query` is a dependency. `web/knip.json` adds `src/routes/**`, `env.ts`, and `doctor.config.ts` as entries; everything else is knip's zero-config defaults. `src/api/**` is in knip's `ignore`.
 
 The CI `web` job runs `bun install --frozen-lockfile`, `just check-web`, `just gen-api-check`, then `just build-web`, and uploads `web/dist/` as the `web-dist` artifact, kept 7 days. The `test` job needs `web` and downloads that artifact into `web/dist/` before `just test`.
+
+`just e2e` runs `just build`, then Playwright (`bun run e2e`) on Chromium only. Playwright needs Node 24, not bun. `web/playwright.config.ts` starts `target/release/triage serve` as its `webServer` on port 7313, off 7311 and 7312 so a running daemon does not collide, with `--data-dir` set to a fresh `mktemp -d` so every run starts with an empty database. It waits on `/health` and never reuses a running server. Specs live in `web/e2e/*.spec.ts`; Vitest's `include` is limited to `src/**/*.test.{ts,tsx}` so it skips them. `just check` does not run e2e. The CI `e2e` job needs `test`, installs Node 24 and Chromium with its system deps, runs `just e2e`, and uploads `web/test-results/` (traces kept on failure) when it fails.
 
 `just gen-api-check` regenerates `web/src/api/` and fails when the result differs from the git index or adds untracked files, so staged output passes. prek runs it when `openapi.json`, `tools/gen-api/`, or `web/src/api/` changes.
 

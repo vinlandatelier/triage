@@ -11,6 +11,7 @@
     "doctor": "bun run --filter @triage/web doctor",
     "knip": "bun run --filter @triage/web knip",
     "test": "bun run --filter @triage/web test",
+    "e2e": "bun run --filter @triage/web e2e",
     "gen:api": "bun run --filter @triage/gen-api gen"
   }
 }

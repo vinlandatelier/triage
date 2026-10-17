@@ -112,6 +112,8 @@ async fn create_logs_the_new_id_in_the_hello_create_span() -> TestResult {
         logs: app.dir.path().join("logs"),
         config: app.dir.path().join("config"),
     };
+    // telemetry::init does not create the logs dir; startup does, in `Paths::create`.
+    std::fs::create_dir_all(&paths.logs)?;
     let guard = telemetry::init(&Config::default(), &paths);
     let created: Value = app
         .server

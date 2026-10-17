@@ -1,15 +1,14 @@
-import { HttpResponse, http } from "msw";
+import { HttpResponse } from "msw";
 import { expect, test } from "vitest";
-import { healthGet } from "@/api";
+import { type HealthGetResponse, healthGet } from "@/api";
 import { ProblemError } from "@/error";
 import { createQueryClient } from "@/query";
+import { mock } from "@/test/handlers";
 import { server } from "@/test/setup";
-
-const health = `${window.location.origin}/api/health`;
 
 test("a problem response rejects with a ProblemError", async () => {
   server.use(
-    http.get(health, () =>
+    mock<HealthGetResponse>("get", "/health", () =>
       HttpResponse.json(
         {
           type: "https://triage.studio/problems/not-found",
@@ -28,7 +27,10 @@ test("a problem response rejects with a ProblemError", async () => {
 });
 
 test("a body that is not a problem still rejects with the status", async () => {
-  server.use(http.get(health, () => new HttpResponse("Bad Gateway", { status: 502 })));
+  // A plain Response opts out of the body check, which is what a non-JSON body needs.
+  server.use(
+    mock<HealthGetResponse>("get", "/health", () => new Response("Bad Gateway", { status: 502 })),
+  );
   const error = await healthGet().catch((e: unknown) => e);
   expect(error).toBeInstanceOf(ProblemError);
   expect(error).toMatchObject({ status: 502 });
@@ -42,4 +44,21 @@ test("queries throw 5xx to the error boundary and keep 4xx local", () => {
   const query = {} as any;
   expect(throwOnError(problem(500), query)).toBe(true);
   expect(throwOnError(problem(404), query)).toBe(false);
+});
+
+test("a handler serves the generated response type", async () => {
+  server.use(
+    mock<HealthGetResponse>("get", "/health", () =>
+      HttpResponse.json({ status: "ok", version: "0.0.0", uptime_s: 1 }),
+    ),
+  );
+  const { data } = await healthGet();
+  expect(data).toEqual({ status: "ok", version: "0.0.0", uptime_s: 1 });
+});
+
+test("a handler cannot return a body the generated type lacks", () => {
+  mock<HealthGetResponse>("get", "/health", () =>
+    // @ts-expect-error `uptime` is not a field of `Health`.
+    HttpResponse.json({ status: "ok", version: "0.0.0", uptime: 1 }),
+  );
 });

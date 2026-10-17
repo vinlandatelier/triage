@@ -1,0 +1,78 @@
+name: ai-review
+
+# pull_request_target so the workflow comes from master and runs for PRs at any
+# depth of a stack, whose bases never contain it. Same-repo PRs only.
+on:
+  pull_request_target:
+    types: [labeled, synchronize]
+  workflow_dispatch:
+    inputs:
+      pr:
+        description: PR number
+        required: true
+
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
+  id-token: write
+  actions: read
+
+concurrency:
+  group: ai-review-${{ github.event.pull_request.number || inputs.pr }}
+  cancel-in-progress: true
+
+jobs:
+  review:
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.pull_request.head.repo.full_name == github.repository &&
+       contains(github.event.pull_request.labels.*.name, 'request-ai-review') &&
+       (github.event.action == 'synchronize' || github.event.label.name == 'request-ai-review'))
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/create-github-app-token@v1
+        id: app
+        with:
+          app-id: ${{ secrets.ASSISTANT_APP_ID }}
+          private-key: ${{ secrets.ASSISTANT_APP_PRIVATE_KEY }}
+
+      - uses: actions/checkout@v4
+        with:
+          token: ${{ steps.app.outputs.token }}
+          ref: ${{ github.event.pull_request.head.sha || format('refs/pull/{0}/head', inputs.pr) }}
+          fetch-depth: 0
+
+      # A restack rewrites commits without changing them. Same patch ids before and after
+      # means nothing new to review, so skip without starting a model session.
+      - id: scope
+        env:
+          ACTION: ${{ github.event.action }}
+          BEFORE: ${{ github.event.before }}
+          AFTER: ${{ github.event.after }}
+          BASE: ${{ github.event.pull_request.base.ref }}
+        run: |
+          if [ "$ACTION" != synchronize ]; then echo "mode=full" >> "$GITHUB_OUTPUT"; exit 0; fi
+          git fetch -q origin "$BEFORE" "$BASE" || { echo "mode=full" >> "$GITHUB_OUTPUT"; exit 0; }
+          ids() { git log -p --format='commit %H' "$1" | git patch-id --stable | cut -d' ' -f1 | sort; }
+          n=$(git rev-list --count "origin/$BASE..$AFTER")
+          if [ "$(ids "origin/$BASE..$AFTER")" = "$(ids "$BEFORE~$n..$BEFORE" 2>/dev/null)" ]; then
+            echo "mode=skip" >> "$GITHUB_OUTPUT"
+          else
+            echo "mode=incremental" >> "$GITHUB_OUTPUT"
+          fi
+
+      - if: steps.scope.outputs.mode != 'skip'
+        uses: anthropics/claude-code-action@v1
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          github_token: ${{ steps.app.outputs.token }}
+          prompt: |
+            Review PR #${{ github.event.pull_request.number || inputs.pr }} with the pr-review skill in .claude/skills/pr-review/SKILL.md.
+            Mode: ${{ steps.scope.outputs.mode }}.${{ steps.scope.outputs.mode == 'incremental' && format(' Before: {0}. After: {1}.', github.event.before, github.event.after) || '' }}
+            Do not edit files or push.
+          claude_args: >-
+            --model claude-opus-5-5 --max-turns 80
+            --allowedTools "Bash,Read,Glob,Grep,Task"
+            --disallowedTools "Edit,Write,Bash(git push:*),Bash(gh pr merge:*)"
+            --append-system-prompt "The maintainer is @${{ vars.MAINTAINER }}."

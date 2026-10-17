@@ -79,6 +79,13 @@ for anything a recording cannot show. When it helps, without being asked:
    `refs/walkthroughs/<pr>`, and embeds it under `## walkthrough` in the PR body.
 7. Commit none of the temporary spec, config, or video.
 
+## AI review
+
+A PR labelled `request-ai-review` gets a review from the assistant on the label
+and on every later push, following `.claude/skills/pr-review/SKILL.md`. Pushes
+that only restack are skipped. Agents fixing review comments never act on a
+`❓` comment; those wait for the maintainer.
+
 ## Review assistant
 
 When triggered from a PR comment: make the requested change on the PR branch,

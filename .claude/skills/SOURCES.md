@@ -1,6 +1,6 @@
 # Skill sources
 
-Every skill in this directory is vendored from a GitHub repo, pinned to the commit below. `just skills-update` reads this table.
+Every skill in this directory is vendored from a GitHub repo, pinned to the commit below, or written here (`local`). `just skills-update` reads this table and skips `local` rows.
 
 | skill | repo | path | commit | local edits |
 |---|---|---|---|---|
@@ -16,6 +16,8 @@ Every skill in this directory is vendored from a GitHub repo, pinned to the comm
 | rust-best-practices | neoeinstein/claude-plugins | plugins/rust-best-practices/skills/rust-best-practices | 89fdbf3f47122d975ac9ded802b3c14d85909aee | `AppError` instead of `color_eyre`, unwrap/expect denied everywhere, facet and aliri_braid lines removed |
 | rust-skills | leonardomso/rust-skills | . | fd2a861ab0406a4ac536a55274d14ea6fd1ca9c9 | trimmed to `err- type- api- async- proj- name- test- obs- serde- lint- pat- anti-`, repo files and `checks/` dropped, see-also links to dropped rules removed, index regenerated, Cargo profile section dropped (`panic = "abort"` breaks `CatchPanicLayer`) |
 | gh-stack | github/gh-stack | skills/gh-stack | 29a36d314be664583705f18e41cebdf2b61ad514 | none |
+| rust-service-conventions | local | - | - | written here, from `features/hello/` |
+| web-conventions | local | - | - | written here, from `web/src/features/hello/` |
 
 ## Updating
 

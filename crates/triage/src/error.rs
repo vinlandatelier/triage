@@ -50,7 +50,7 @@ pub type Problem = ProblemDetails<ProblemExtensions>;
     dead_code,
     reason = "describes the problem+json body for the spec, never built"
 )]
-pub struct ProblemSchema {
+pub(crate) struct ProblemSchema {
     /// `https://triage.studio/problems/<slug>`
     #[schema(format = "uri")]
     r#type: String,

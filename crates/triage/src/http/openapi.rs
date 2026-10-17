@@ -18,7 +18,7 @@ pub fn api_doc() -> OpenApi {
 
 /// [`api_doc`] as pretty JSON with sorted keys and a trailing newline, the committed form.
 pub fn api_json() -> serde_json::Result<String> {
-    // Going through `Value` sorts every object's keys, so the committed file diffs cleanly.
+    // `Value` maps are `BTreeMap`s, so keys come out sorted.
     let value = serde_json::to_value(api_doc())?;
     Ok(serde_json::to_string_pretty(&value)? + "\n")
 }

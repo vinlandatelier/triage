@@ -12,6 +12,8 @@ subprocess with the user's own login. No API keys.
 - When a change depends on another unmerged PR, stack it with `gh stack` instead
   of waiting or bundling. Prefer a stack of small PRs over one large PR whenever
   the pieces are reviewable on their own.
+- In a stack, change code from lower PRs only where your PR needs it. A defect
+  in a lower PR gets fixed on that PR's branch, then restack.
 - Never push directly to `master`. Never merge; the maintainer merges.
 - The only rewrite of a pushed branch is a restack: `gh stack rebase`, then
   `gh stack push` (`--force-with-lease`). Never plain `--force`.
@@ -43,8 +45,8 @@ it behind. Restack them:
    - generated or lock files: take either side, regenerate with `just`
    - otherwise keep what each PR's issue says that PR must do
 3. If a resolution needs a product decision, or both intents might not survive,
-   run `gh stack rebase --abort` and comment on that PR mentioning the
-   authors of the conflicting changes: one line per conflict with file, options, and a recommendation.
+   run `gh stack rebase --abort` and ask the authors of the conflicting changes
+   on that PR, as in "Asking for a decision" below.
 4. Run the checks on each branch the rebase changed, then `gh stack push`.
 
 Never merge one branch into another to catch up (`git merge`, `git pull`): a
@@ -79,9 +81,40 @@ for anything a recording cannot show. When it helps, without being asked:
    `refs/walkthroughs/<pr>`, and embeds it under `## walkthrough` in the PR body.
 7. Commit none of the temporary spec, config, or video.
 
+## AI review
+
+A PR labelled `request-ai-review` gets a review from the assistant on the label
+and on every later push, following `.claude/skills/pr-review/SKILL.md`. Pushes
+that only restack are skipped. Agents fixing review comments never act on a
+`❓` comment; those wait for the person asked.
+
+## Asking for a decision
+
+Any comment that needs a person's decision mentions whoever has the most
+context (see Conventions) and uses this shape, scannable on a phone in five
+seconds:
+
+```
+@<person> **your call:** <the question, one line>
+
+`file:line` · <what is wrong or undecided, one line>
+
+- **A (rec):** <option>. <why, one short clause>
+- **B:** <option>. <tradeoff, one short clause>
+
+Reply `A` or `B` in this thread.
+```
+
+Context is one line at most, each option one line, exactly one `(rec)`. No prose
+paragraphs. Post it as an inline review comment on the line it is about, one
+thread per decision, so the person replies in the thread. The assistant
+answers any reply in a thread it started, no mention needed. Top-level only
+when no diff line fits.
+
 ## Review assistant
 
-When triggered from a PR comment: make the requested change on the PR branch,
+Triggered by `@vinland-ai`, `/vinland-ai`, or `/vai` in a comment, or by any reply in a
+thread it started. When triggered from a PR comment: make the requested change on the PR branch,
 run the relevant checks, push, restack if the PR has PRs above it, and reply in
 the same thread. Never merge, never touch `master`.
 

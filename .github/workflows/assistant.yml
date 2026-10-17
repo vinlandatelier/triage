@@ -18,8 +18,80 @@ permissions:
 jobs:
   respond:
     if: >-
-      contains(github.event.comment.body, '@abyan-cc') ||
-      contains(github.event.review.body, '@abyan-cc')
+      contains(github.event.comment.body, '@vinland-ai') || contains(github.event.review.body, '@vinland-ai') ||
+      contains(github.event.comment.body, '/vinland-ai') || contains(github.event.review.body, '/vinland-ai') ||
+      contains(github.event.comment.body, '/vai') || contains(github.event.review.body, '/vai')
+    runs-on: ubuntu-latest
+    steps:
+      # contains() above ignores word boundaries ("/vain" passes it). The action takes one
+      # trigger phrase, so pick the one used, matched the way the action matches it.
+      - id: trigger
+        env:
+          BODY: ${{ github.event.comment.body || github.event.review.body }}
+        run: |
+          for p in @vinland-ai /vinland-ai /vai; do
+            if printf '%s' "$BODY" | grep -qE "(^|[[:space:]])$p([[:space:].,!?;:]|$)"; then
+              echo "phrase=$p" >> "$GITHUB_OUTPUT"; exit 0
+            fi
+          done
+
+      - if: steps.trigger.outputs.phrase
+        uses: actions/create-github-app-token@v1
+        id: app
+        with:
+          app-id: ${{ secrets.ASSISTANT_APP_ID }}
+          private-key: ${{ secrets.ASSISTANT_APP_PRIVATE_KEY }}
+
+      # 👀 on the triggering comment, so the person knows it was picked up. Review bodies
+      # have no reactions API, so a trigger there gets none.
+      - if: steps.trigger.outputs.phrase
+        name: acknowledge
+        env:
+          GH_TOKEN: ${{ steps.app.outputs.token }}
+          EVENT: ${{ github.event_name }}
+          ID: ${{ github.event.comment.id }}
+        run: |
+          case "$EVENT" in
+            issue_comment) kind=issues ;;
+            pull_request_review_comment) kind=pulls ;;
+            *) exit 0 ;;
+          esac
+          gh api "repos/$GITHUB_REPOSITORY/$kind/comments/$ID/reactions" -f content=eyes --silent || true
+
+      - if: steps.trigger.outputs.phrase
+        uses: actions/checkout@v4
+        with:
+          token: ${{ steps.app.outputs.token }}
+          fetch-depth: 0
+
+      - if: steps.trigger.outputs.phrase
+        uses: oven-sh/setup-bun@v2
+
+      - if: steps.trigger.outputs.phrase
+        run: gh extension install github/gh-stack --pin v0.2.1
+        env:
+          GH_TOKEN: ${{ steps.app.outputs.token }}
+
+      - if: steps.trigger.outputs.phrase
+        uses: anthropics/claude-code-action@v1
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          github_token: ${{ steps.app.outputs.token }}
+          trigger_phrase: ${{ steps.trigger.outputs.phrase }}
+          claude_args: >-
+            --model claude-opus-5-5 --max-turns 60
+            --allowedTools "Bash,Edit,Write,Read,Glob,Grep"
+            --disallowedTools "Bash(gh pr merge:*),Bash(gh stack merge:*),Bash(git push --force *),Bash(git push -f *),Bash(git rebase:*),Bash(git push --force-with-lease*),Bash(git push * --force*),Bash(git push * -f*),Bash(git push *+*),Bash(gh api *merge*),Bash(git merge:*),Bash(git pull:*)"
+
+  # Replies in a review thread the assistant started need no mention.
+  thread-reply:
+    if: >-
+      github.event_name == 'pull_request_review_comment' &&
+      github.event.comment.in_reply_to_id &&
+      github.event.comment.user.type != 'Bot' &&
+      !contains(github.event.comment.body, '@vinland-ai') &&
+      !contains(github.event.comment.body, '/vinland-ai') &&
+      !contains(github.event.comment.body, '/vai')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/create-github-app-token@v1
@@ -28,23 +100,63 @@ jobs:
           app-id: ${{ secrets.ASSISTANT_APP_ID }}
           private-key: ${{ secrets.ASSISTANT_APP_PRIVATE_KEY }}
 
-      - uses: actions/checkout@v4
+      - id: root
+        env:
+          GH_TOKEN: ${{ steps.app.outputs.token }}
+          ROOT: ${{ github.event.comment.in_reply_to_id }}
+          WHO: ${{ github.event.comment.user.login }}
+        # Write access, not author_association: members with private org membership read as
+        # CONTRIBUTOR there.
+        run: |
+          author=$(gh api "repos/$GITHUB_REPOSITORY/pulls/comments/$ROOT" --jq .user.login)
+          perm=$(gh api "repos/$GITHUB_REPOSITORY/collaborators/$WHO/permission" --jq .permission || echo none)
+          ours=false
+          if [ "$author" = 'vinland-ai[bot]' ] && [[ "$perm" =~ ^(admin|maintain|write)$ ]]; then ours=true; fi
+          echo "ours=$ours" >> "$GITHUB_OUTPUT"
+
+      # 👀 on the triggering comment, so the person knows it was picked up. Review bodies
+      # have no reactions API, so a trigger there gets none.
+      - if: steps.root.outputs.ours == 'true'
+        name: acknowledge
+        env:
+          GH_TOKEN: ${{ steps.app.outputs.token }}
+          EVENT: ${{ github.event_name }}
+          ID: ${{ github.event.comment.id }}
+        run: |
+          case "$EVENT" in
+            issue_comment) kind=issues ;;
+            pull_request_review_comment) kind=pulls ;;
+            *) exit 0 ;;
+          esac
+          gh api "repos/$GITHUB_REPOSITORY/$kind/comments/$ID/reactions" -f content=eyes --silent || true
+
+      - if: steps.root.outputs.ours == 'true'
+        uses: actions/checkout@v4
         with:
           token: ${{ steps.app.outputs.token }}
+          ref: ${{ github.event.pull_request.head.ref }}
           fetch-depth: 0
 
-      - uses: oven-sh/setup-bun@v2
+      - if: steps.root.outputs.ours == 'true'
+        uses: oven-sh/setup-bun@v2
 
-      - run: gh extension install github/gh-stack --pin v0.2.1
+      - if: steps.root.outputs.ours == 'true'
+        run: gh extension install github/gh-stack --pin v0.2.1
         env:
           GH_TOKEN: ${{ steps.app.outputs.token }}
 
-      - uses: anthropics/claude-code-action@v1
+      - if: steps.root.outputs.ours == 'true'
+        uses: anthropics/claude-code-action@v1
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           github_token: ${{ steps.app.outputs.token }}
-          trigger_phrase: "@abyan-cc"
+          prompt: |
+            @${{ github.event.comment.user.login }} replied in review thread ${{ github.event.comment.in_reply_to_id }} on PR #${{ github.event.pull_request.number }}, which you started.
+            Their reply (comment ${{ github.event.comment.id }}): read it with `gh api repos/${{ github.repository }}/pulls/comments/${{ github.event.comment.id }}`, and read the whole thread for context.
+            If it answers a decision (`A`, `B`, or free text), apply it on branch `${{ github.event.pull_request.head.ref }}`, run the checks, push, restack per CLAUDE.md, then reply in the thread with one line saying what changed and resolve the thread.
+            If it asks a question or pushes back, answer in the thread in the review assistant reply style.
+            Reply with: gh api repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/comments/${{ github.event.comment.in_reply_to_id }}/replies -f body=...
           claude_args: >-
             --model claude-opus-5-5 --max-turns 60
             --allowedTools "Bash,Edit,Write,Read,Glob,Grep"
-            --disallowedTools "Bash(gh pr merge:*),Bash(gh stack merge:*),Bash(git push --force *),Bash(git push -f *),Bash(git rebase:*),Bash(git push --force-with-lease*),Bash(git push * --force*),Bash(git push * -f*),Bash(git push *+*),Bash(gh api *merge*),Bash(git merge:*),Bash(git pull:*)"
+            --disallowedTools "Bash(gh pr merge:*),Bash(gh stack merge:*),Bash(git push --force *),Bash(git push -f *),Bash(git rebase:*),Bash(git push --force-with-lease*),Bash(git push * --force*),Bash(git push * -f*),Bash(git push *+*),Bash(gh api *merge*)"

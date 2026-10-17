@@ -253,7 +253,7 @@ mod tests {
         let writer = capture.clone();
         let subscriber = tracing_subscriber::registry().with(
             telemetry::file_layer(move || writer.clone())
-                // axum's `tracing` feature, on in dev builds via axum-test, logs connection events.
+                // axum's `tracing` feature, on in test builds via axum-test, logs connection events.
                 .with_filter(Targets::new().with_target("triage", Level::TRACE)),
         );
         let _default = tracing::subscriber::set_default(subscriber);

@@ -8,7 +8,7 @@ async fn violations(pool: &SqlitePool) -> sqlx::Result<Vec<String>> {
     let tables: Vec<(String, bool)> = sqlx::query_as(
         "SELECT name, strict FROM pragma_table_list
          WHERE schema = 'main' AND type = 'table'
-           AND name NOT LIKE 'sqlite_%' AND name <> '_sqlx_migrations'
+           AND name NOT GLOB 'sqlite_*' AND name <> '_sqlx_migrations'
          ORDER BY name",
     )
     .fetch_all(pool)
@@ -22,7 +22,7 @@ async fn violations(pool: &SqlitePool) -> sqlx::Result<Vec<String>> {
             found.push(format!("{table}: table name is not snake_case"));
         }
         let columns: Vec<(String, String, i64)> =
-            sqlx::query_as("SELECT name, type, pk FROM pragma_table_info(?) ORDER BY cid")
+            sqlx::query_as("SELECT name, type, pk FROM pragma_table_xinfo(?) ORDER BY cid")
                 .bind(&table)
                 .fetch_all(pool)
                 .await?;
@@ -65,7 +65,14 @@ async fn violations_flags_each_broken_rule() -> TestResult {
     sqlx::query(
         "CREATE TABLE good (id TEXT PRIMARY KEY, created_at TEXT NOT NULL, updated_at TEXT NOT NULL) STRICT;
          CREATE TABLE loose (id TEXT PRIMARY KEY, created_at TEXT, updated_at TEXT);
-         CREATE TABLE \"BadName\" (id INTEGER PRIMARY KEY, \"createdAt\" TEXT) STRICT;",
+         CREATE TABLE \"BadName\" (id INTEGER PRIMARY KEY, \"createdAt\" TEXT) STRICT;
+         CREATE TABLE any_id (id ANY PRIMARY KEY, created_at TEXT, updated_at TEXT) STRICT;
+         CREATE TABLE composite (
+             id TEXT, n INTEGER, created_at TEXT, updated_at TEXT,
+             \"genCol\" TEXT GENERATED ALWAYS AS (id) VIRTUAL,
+             PRIMARY KEY (id, n)
+         ) STRICT;
+         CREATE TABLE sqlitex (id TEXT PRIMARY KEY, created_at TEXT, updated_at TEXT);",
     )
     .execute(&app.store.write)
     .await?;
@@ -78,7 +85,11 @@ async fn violations_flags_each_broken_rule() -> TestResult {
             "BadName: missing created_at",
             "BadName: missing updated_at",
             "BadName.createdAt: column name is not snake_case",
+            "any_id: primary key is not `id TEXT`",
+            "composite: primary key is not `id TEXT`",
+            "composite.genCol: column name is not snake_case",
             "loose: not STRICT",
+            "sqlitex: not STRICT",
         ]
     );
     Ok(())

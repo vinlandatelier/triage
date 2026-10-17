@@ -94,7 +94,7 @@ pub struct TestApp {
     pub server: TestServer,
     pub store: Store,
     /// Dropping it deletes the database, so it lives as long as the app.
-    #[allow(dead_code, reason = "read only by tests that need the data dir path")]
+    #[allow(dead_code, reason = "held so the database outlives the store")]
     pub dir: TempDir,
 }
 

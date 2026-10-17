@@ -3,6 +3,7 @@ use axum::routing::get;
 use axum::{Json, Router};
 use serde::Serialize;
 use utoipa::ToSchema;
+use utoipa::openapi::OpenApi;
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
 
@@ -13,12 +14,25 @@ use super::state::AppState;
 pub fn router(state: AppState) -> Router {
     let (routes, doc) = routes().split_for_parts();
     let doc = openapi::finish(doc);
+    let routes = scalar(routes, &doc);
     middleware::trace(middleware::problems(
         routes
             .route("/api/openapi.json", get(move || async move { Json(doc) }))
             .fallback(middleware::fallback)
             .with_state(state),
     ))
+}
+
+#[cfg(debug_assertions)]
+fn scalar(routes: Router<AppState>, doc: &OpenApi) -> Router<AppState> {
+    use utoipa_scalar::{Scalar, Servable as _};
+    routes.merge(Scalar::with_url("/api/scalar", doc.clone()))
+}
+
+// Release builds leave `/api/scalar` to the `/api` fallback: the docs UI never ships.
+#[cfg(not(debug_assertions))]
+fn scalar(routes: Router<AppState>, _: &OpenApi) -> Router<AppState> {
+    routes
 }
 
 /// Every documented route. [`openapi::api_doc`] reads the spec from the same value.

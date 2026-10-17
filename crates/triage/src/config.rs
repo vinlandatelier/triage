@@ -21,6 +21,7 @@ pub const REQUIRED: &[&str] = &[];
 const ENV_PREFIX: &str = "TRIAGE_";
 const DATA_DIR_VAR: &str = "TRIAGE_DATA_DIR";
 const OTEL_ENDPOINT_VAR: &str = "TRIAGE_OTEL_ENDPOINT";
+const OTEL_STANDARD_VAR: &str = "OTEL_EXPORTER_OTLP_ENDPOINT";
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
@@ -128,21 +129,15 @@ impl Config {
             std::env::var_os(format!("{ENV_PREFIX}{}", key.as_str().to_uppercase()))
                 .is_none_or(|v| !v.is_empty())
         });
-        let config: Self = Figment::from(env).extract()?;
-        config.validate()?;
-        Ok(config)
-    }
-
-    // `localhost:4317` parses as a URL with scheme `localhost`.
-    fn validate(&self) -> Result<()> {
-        match &self.otel_endpoint {
-            Some(url) if !matches!(url.scheme(), "http" | "https") || !url.has_host() => {
-                Err(Error::Invalid(vec![format!(
-                    "{OTEL_ENDPOINT_VAR}: expected an http(s) URL with a host"
-                )]))
+        let mut config: Self = Figment::from(env).extract()?;
+        match &config.otel_endpoint {
+            Some(url) => check_otel_endpoint(OTEL_ENDPOINT_VAR, url)?,
+            None => {
+                config.otel_endpoint =
+                    otel_standard_endpoint(std::env::var(OTEL_STANDARD_VAR).ok())?;
             }
-            _ => Ok(()),
         }
+        Ok(config)
     }
 
     /// Each env var with its value, formatted through `Debug` so [`Secret`] fields print redacted.
@@ -199,7 +194,7 @@ impl fmt::Debug for Config {
     }
 }
 
-fn redact_userinfo(url: &Url) -> String {
+pub(crate) fn redact_userinfo(url: &Url) -> String {
     let mut url = url.clone();
     // Both setters only fail on URLs that cannot have userinfo, which also have none to hide.
     if !url.username().is_empty() {
@@ -209,6 +204,30 @@ fn redact_userinfo(url: &Url) -> String {
         let _ = url.set_password(Some("redacted"));
     }
     url.into()
+}
+
+fn otel_standard_endpoint(value: Option<String>) -> Result<Option<Url>> {
+    value
+        .filter(|v| !v.is_empty())
+        .map(|v| {
+            let url = Url::parse(&v).map_err(|_| otel_endpoint_error(OTEL_STANDARD_VAR))?;
+            check_otel_endpoint(OTEL_STANDARD_VAR, &url)?;
+            Ok(url)
+        })
+        .transpose()
+}
+
+// `localhost:4317` parses as a URL with scheme `localhost`.
+fn check_otel_endpoint(var: &str, url: &Url) -> Result<()> {
+    if matches!(url.scheme(), "http" | "https") && url.has_host() {
+        Ok(())
+    } else {
+        Err(otel_endpoint_error(var))
+    }
+}
+
+fn otel_endpoint_error(var: &str) -> Error {
+    Error::Invalid(vec![format!("{var}: expected an http(s) URL with a host")])
 }
 
 /// Serde stops at the first missing field, so this names every absent var at once.
@@ -499,6 +518,40 @@ mod tests {
     fn relative_data_dir_becomes_absolute() -> TestResult {
         assert!(absolute_data_dir(PathBuf::from("rel"))?.is_absolute());
         Ok(())
+    }
+
+    #[test]
+    fn otel_endpoint_falls_back_to_standard_var() -> figment::Result<()> {
+        Jail::try_with(|jail| {
+            jail.clear_env();
+            jail.set_env(OTEL_STANDARD_VAR, "http://collector:4318");
+            let config = Config::from_env().map_err(|e| e.to_string())?;
+            assert_eq!(
+                config.otel_endpoint.map(String::from).as_deref(),
+                Some("http://collector:4318/")
+            );
+            jail.set_env("TRIAGE_OTEL_ENDPOINT", "http://triage:4318");
+            let config = Config::from_env().map_err(|e| e.to_string())?;
+            assert_eq!(
+                config.otel_endpoint.map(String::from).as_deref(),
+                Some("http://triage:4318/")
+            );
+            Ok(())
+        })
+    }
+
+    #[test]
+    fn malformed_standard_otel_var_names_it() -> figment::Result<()> {
+        Jail::try_with(|jail| {
+            jail.clear_env();
+            jail.set_env(OTEL_STANDARD_VAR, "not a url");
+            let message = Config::from_env()
+                .err()
+                .map(|e| e.to_string())
+                .unwrap_or_default();
+            assert!(message.contains(OTEL_STANDARD_VAR), "{message}");
+            Ok(())
+        })
     }
 
     #[test]

@@ -17,12 +17,16 @@ clap_complete = "4.6.11"
 directories = "6.0.0"
 dotenvy = "0.15.7"
 figment = { version = "0.10.19", features = ["env"] }
+opentelemetry = { version = "0.33", default-features = false, features = ["trace"] }
+opentelemetry-otlp = { version = "0.33", default-features = false, features = ["http-proto", "reqwest-blocking-client", "trace"] }
+opentelemetry_sdk = { version = "0.33", default-features = false, features = ["trace"] }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"
 thiserror = "2.0.21"
 time = { version = "0.3.55", features = ["formatting", "local-offset", "macros"] }
 tracing = "0.1.44"
 tracing-appender = "0.2.5"
+tracing-opentelemetry = { version = "0.34", default-features = false }
 tracing-subscriber = { version = "0.3.23", default-features = false, features = ["fmt", "env-filter", "ansi", "registry", "std"] }
 url = { version = "2.5.8", features = ["serde"] }
 

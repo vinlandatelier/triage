@@ -1,4 +1,4 @@
-//! Tracing subscriber: human-readable stderr plus a JSONL file for agents.
+//! Tracing subscriber: human-readable stderr, a JSONL file for agents, and OTLP when configured.
 
 use std::collections::HashSet;
 use std::fmt::{self, Write as _};
@@ -25,6 +25,7 @@ use tracing_subscriber::{EnvFilter, Layer, Registry};
 use crate::config::{self, Config, LogFormat, Paths};
 
 mod columns;
+mod otel;
 
 const MAX_LOG_FILES: usize = 7;
 
@@ -32,10 +33,12 @@ const MAX_LOG_FILES: usize = 7;
 const TS_FORMAT: &[BorrowedFormatItem<'_>] =
     format_description!("[year]-[month]-[day]T[hour]:[minute]:[second].[subsecond digits:6]Z");
 
-/// Flushes the JSONL file on drop. Hold it until the process exits.
+/// Flushes OTLP and the JSONL file on drop. Hold it until the process exits.
 #[derive(Debug)]
 #[must_use = "dropping the guard stops file logging"]
 pub struct Guard {
+    // Declared first so it drops first: a failed final export can still reach the file.
+    _otel: Option<otel::Otel>,
     _worker: Option<WorkerGuard>,
 }
 
@@ -44,6 +47,7 @@ type BoxedLayer = Box<dyn Layer<Registry> + Send + Sync>;
 struct Sinks {
     layers: Vec<BoxedLayer>,
     worker: Option<WorkerGuard>,
+    otel: Option<otel::Otel>,
     warnings: Vec<String>,
 }
 
@@ -52,19 +56,23 @@ pub fn init(config: &Config, paths: &Paths) -> Guard {
     let Sinks {
         layers,
         worker,
+        otel,
         mut warnings,
     } = sinks(config, paths);
-    let worker = match tracing_subscriber::registry().with(layers).try_init() {
-        Ok(()) => worker,
+    let (otel, worker) = match tracing_subscriber::registry().with(layers).try_init() {
+        Ok(()) => (otel, worker),
         Err(err) => {
             warnings.push(format!("tracing subscriber already installed: {err}"));
-            None
+            (None, None)
         }
     };
     for warning in warnings {
         tracing::warn!("{warning}");
     }
-    Guard { _worker: worker }
+    Guard {
+        _otel: otel,
+        _worker: worker,
+    }
 }
 
 fn sinks(config: &Config, paths: &Paths) -> Sinks {
@@ -98,9 +106,18 @@ fn sinks(config: &Config, paths: &Paths) -> Sinks {
             None
         }
     };
+
+    let otel = otel::layer(config.otel_endpoint.as_ref(), &mut warnings).map(|(layer, otel)| {
+        // Same directives as the file, which already warned if they were invalid.
+        let filter = EnvFilter::try_new(&config.log_file_level)
+            .unwrap_or_else(|_| EnvFilter::new(&Config::default().log_file_level));
+        layers.push(layer.with_filter(filter).boxed());
+        otel
+    });
     Sinks {
         layers,
         worker,
+        otel,
         warnings,
     }
 }

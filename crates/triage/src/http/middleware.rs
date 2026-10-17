@@ -6,6 +6,7 @@ use axum::Router;
 use axum::extract::Request;
 use axum::http::{HeaderName, HeaderValue};
 use axum::response::Response;
+use tower_http::classify::ServerErrorsFailureClass;
 use tower_http::request_id::{
     MakeRequestId, PropagateRequestIdLayer, RequestId, SetRequestIdLayer,
 };
@@ -30,8 +31,7 @@ pub fn trace(router: Router) -> Router {
                 .on_request(())
                 .on_eos(())
                 .on_response(on_response)
-                // The span already records a 5xx `status`; the default adds a second ERROR line.
-                .on_failure(()),
+                .on_failure(on_failure),
         )
         .layer(SetRequestIdLayer::x_request_id(MakeRequestUuidV7))
         .layer(axum::middleware::map_request(drop_unusable_request_id))
@@ -83,12 +83,25 @@ fn make_span(request: &Request) -> Span {
 fn on_response(response: &Response, latency: Duration, span: &Span) {
     let status = response.status().as_u16();
     span.record("status", status);
-    // Debug keeps stderr to the span's close line while the default file filter still gets one line per request.
-    tracing::debug!(
-        status,
-        latency_ms = latency.as_secs_f64() * 1000.0,
-        "response"
-    );
+    let latency_ms = latency.as_secs_f64() * 1000.0;
+    // Debug keeps stderr to the span's close line while the default file filter still gets
+    // one line per request. A 5xx is raised to warn so it survives a quieter filter.
+    if response.status().is_server_error() {
+        tracing::warn!(status, latency_ms, "response");
+    } else {
+        tracing::debug!(status, latency_ms, "response");
+    }
+}
+
+/// `on_response` already covers 5xx statuses, so only body and stream errors log here.
+fn on_failure(failure: ServerErrorsFailureClass, latency: Duration, _: &Span) {
+    if let ServerErrorsFailureClass::Error(error) = failure {
+        tracing::error!(
+            error,
+            latency_ms = latency.as_secs_f64() * 1000.0,
+            "response failed"
+        );
+    }
 }
 
 #[cfg(test)]
@@ -240,6 +253,7 @@ mod tests {
             return Err(format!("want one line, got {lines:?}").into());
         };
         assert_eq!(done["message"], "response");
+        assert_eq!(done["level"], "WARN");
         assert_eq!(done["status"], 500);
         Ok(())
     }

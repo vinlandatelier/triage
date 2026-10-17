@@ -4,6 +4,7 @@ use axum::http::{StatusCode, Uri};
 use axum::response::{IntoResponse, Response};
 use problem_details::ProblemDetails;
 use serde::Serialize;
+use utoipa::ToSchema;
 
 pub type Result<T, E = AppError> = std::result::Result<T, E>;
 
@@ -27,7 +28,7 @@ pub enum AppError {
     Db(#[from] sqlx::Error),
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, ToSchema)]
 pub struct FieldError {
     pub field: String,
     pub message: String,
@@ -40,6 +41,31 @@ pub struct ProblemExtensions {
 }
 
 pub type Problem = ProblemDetails<ProblemExtensions>;
+
+// The spec's shape for `Problem`: `problem_details` implements only utoipa 5's `ToSchema`.
+/// An RFC 9457 problem.
+#[derive(Debug, ToSchema)]
+#[schema(as = Problem)]
+#[expect(
+    dead_code,
+    reason = "describes the problem+json body for the spec, never built"
+)]
+pub struct ProblemSchema {
+    /// `https://triage.studio/problems/<slug>`
+    #[schema(format = "uri")]
+    r#type: String,
+    title: String,
+    status: u16,
+    /// Present on 4xx only.
+    #[schema(required = false)]
+    detail: String,
+    /// The request id.
+    #[schema(required = false)]
+    instance: String,
+    /// Present on validation problems only.
+    #[schema(required = false)]
+    errors: Vec<FieldError>,
+}
 
 impl AppError {
     pub fn status(&self) -> StatusCode {

@@ -10,6 +10,7 @@ use std::path::{Path, PathBuf};
 
 use directories::ProjectDirs;
 use figment::Figment;
+use figment::error::Kind;
 use figment::providers::Env;
 use serde::Deserialize;
 use url::Url;
@@ -32,7 +33,7 @@ pub enum Error {
     NoHome,
     #[error("cannot create directory {}: {source}", path.display())]
     CreateDir { path: PathBuf, source: io::Error },
-    #[error("data directory {} is not writable: {source}", path.display())]
+    #[error("directory {} is not writable: {source}", path.display())]
     NotWritable { path: PathBuf, source: io::Error },
 }
 
@@ -47,16 +48,19 @@ impl Error {
 }
 
 // figment's own message drops the `TRIAGE_` prefix from the key, so name the var here.
+// It also echoes the raw value, which would leak a malformed secret to stderr.
 impl From<figment::Error> for Error {
     fn from(err: figment::Error) -> Self {
         Self::Invalid(
             err.into_iter()
                 .map(|e| {
-                    format!(
-                        "{ENV_PREFIX}{}: {}",
-                        e.path.join("_").to_uppercase(),
-                        e.kind
-                    )
+                    let var = format!("{ENV_PREFIX}{}", e.path.join("_").to_uppercase());
+                    match e.kind {
+                        Kind::InvalidType(_, expected) | Kind::InvalidValue(_, expected) => {
+                            format!("{var}: expected {expected}")
+                        }
+                        kind => format!("{var}: {kind}"),
+                    }
                 })
                 .collect(),
         )
@@ -99,7 +103,8 @@ impl Config {
     /// Reads `.env` in debug builds, checks [`REQUIRED`], then extracts `TRIAGE_*`.
     pub fn load() -> Result<Self> {
         #[cfg(debug_assertions)]
-        match dotenvy::dotenv() {
+        // `dotenv()` walks up parent dirs and could load an unrelated `.env`.
+        match dotenvy::from_path(".env") {
             Err(err) if !err.not_found() => return Err(err.into()),
             _ => {}
         }
@@ -110,7 +115,26 @@ impl Config {
     }
 
     fn from_env() -> Result<Self> {
-        Ok(Figment::from(Env::prefixed(ENV_PREFIX)).extract()?)
+        // `VAR=` means unset, matching preflight and TRIAGE_DATA_DIR.
+        let env = Env::prefixed(ENV_PREFIX).filter(|key| {
+            std::env::var_os(format!("{ENV_PREFIX}{}", key.as_str().to_uppercase()))
+                .is_none_or(|v| !v.is_empty())
+        });
+        let config: Self = Figment::from(env).extract()?;
+        config.validate()?;
+        Ok(config)
+    }
+
+    // `localhost:4317` parses as a URL with scheme `localhost`.
+    fn validate(&self) -> Result<()> {
+        match &self.otel_endpoint {
+            Some(url) if !matches!(url.scheme(), "http" | "https") || !url.has_host() => {
+                Err(Error::Invalid(vec![format!(
+                    "{ENV_PREFIX}OTEL_ENDPOINT: expected an http(s) URL with a host, found {url}"
+                )]))
+            }
+            _ => Ok(()),
+        }
     }
 }
 
@@ -160,9 +184,10 @@ impl Paths {
     /// `--data-dir` > `TRIAGE_DATA_DIR` > platform dirs. Creates each dir with mode 0700.
     pub fn resolve(flag: Option<PathBuf>) -> Result<Self> {
         let env = std::env::var_os(DATA_DIR_VAR).filter(|v| !v.is_empty());
+        let home = std::env::var_os("HOME").filter(|v| Path::new(v).is_absolute());
         let paths = match pick_data_dir(flag, env) {
-            Some(dir) => Self::under(dir),
-            None => Self::platform(std::env::var_os("HOME").filter(|v| !v.is_empty()))?,
+            Some(dir) => Self::under(absolute_data_dir(dir)?),
+            None => Self::platform(home)?,
         };
         paths.create()?;
         Ok(paths)
@@ -189,10 +214,11 @@ impl Paths {
     }
 
     fn create(&self) -> Result<()> {
-        create_dir(&self.data)?;
-        check_writable(&self.data)?;
-        create_dir(&self.config)?;
-        create_dir(&self.logs)
+        for dir in [&self.data, &self.config, &self.logs] {
+            create_dir(dir)?;
+            check_writable(dir)?;
+        }
+        Ok(())
     }
 }
 
@@ -222,6 +248,18 @@ fn pick_data_dir(flag: Option<PathBuf>, env: Option<OsString>) -> Option<PathBuf
     }
 }
 
+// No shell expands `~` in `.env` or a quoted flag, and a relative dir would
+// move with any later chdir.
+fn absolute_data_dir(dir: PathBuf) -> Result<PathBuf> {
+    if dir.starts_with("~") {
+        return Err(Error::Invalid(vec![format!(
+            "data dir {}: `~` is not expanded; use an absolute path",
+            dir.display()
+        )]));
+    }
+    std::path::absolute(&dir).map_err(|source| Error::CreateDir { path: dir, source })
+}
+
 fn create_dir(path: &Path) -> Result<()> {
     let mut builder = DirBuilder::new();
     builder.recursive(true);
@@ -234,12 +272,12 @@ fn create_dir(path: &Path) -> Result<()> {
 }
 
 // An existing read-only dir passes create_dir, so probe with a real write.
+// The pid keeps concurrent starts apart; `create_new` refuses a planted symlink.
 fn check_writable(dir: &Path) -> Result<()> {
-    let probe = dir.join(".triage-write-check");
+    let probe = dir.join(format!(".triage-write-check-{}", std::process::id()));
     OpenOptions::new()
         .write(true)
-        .create(true)
-        .truncate(true)
+        .create_new(true)
         .open(&probe)
         .and_then(|_| fs::remove_file(&probe))
         .map_err(|source| Error::NotWritable {
@@ -262,7 +300,8 @@ mod tests {
 
     #[test]
     fn defaults_without_env() -> figment::Result<()> {
-        Jail::try_with(|_| {
+        Jail::try_with(|jail| {
+            jail.clear_env();
             assert_eq!(
                 Config::from_env().map_err(|e| e.to_string())?,
                 Config::default()
@@ -274,6 +313,7 @@ mod tests {
     #[test]
     fn reads_prefixed_env() -> figment::Result<()> {
         Jail::try_with(|jail| {
+            jail.clear_env();
             jail.set_env("TRIAGE_PORT", "8000");
             jail.set_env("TRIAGE_LOG_FORMAT", "json");
             jail.set_env("TRIAGE_OTEL_ENDPOINT", "http://localhost:4317");
@@ -291,6 +331,7 @@ mod tests {
     #[test]
     fn malformed_port_names_the_var() -> figment::Result<()> {
         Jail::try_with(|jail| {
+            jail.clear_env();
             jail.set_env("TRIAGE_PORT", "abc");
             let Err(err) = Config::from_env() else {
                 return Err("TRIAGE_PORT=abc must fail".into());
@@ -306,6 +347,7 @@ mod tests {
     #[test]
     fn malformed_url_fails() -> figment::Result<()> {
         Jail::try_with(|jail| {
+            jail.clear_env();
             jail.set_env("TRIAGE_OTEL_ENDPOINT", "not a url");
             let message = Config::from_env()
                 .err()
@@ -314,6 +356,61 @@ mod tests {
             assert!(message.contains("TRIAGE_OTEL_ENDPOINT"), "{message}");
             Ok(())
         })
+    }
+
+    #[test]
+    fn empty_values_mean_unset() -> figment::Result<()> {
+        Jail::try_with(|jail| {
+            jail.clear_env();
+            jail.set_env("TRIAGE_PORT", "");
+            jail.set_env("TRIAGE_OTEL_ENDPOINT", "");
+            assert_eq!(
+                Config::from_env().map_err(|e| e.to_string())?,
+                Config::default()
+            );
+            Ok(())
+        })
+    }
+
+    #[test]
+    fn otel_endpoint_needs_http_scheme() -> figment::Result<()> {
+        Jail::try_with(|jail| {
+            jail.clear_env();
+            jail.set_env("TRIAGE_OTEL_ENDPOINT", "localhost:4317");
+            let message = Config::from_env()
+                .err()
+                .map(|e| e.to_string())
+                .unwrap_or_default();
+            assert!(message.contains("TRIAGE_OTEL_ENDPOINT"), "{message}");
+            Ok(())
+        })
+    }
+
+    #[test]
+    fn invalid_value_is_not_echoed() -> figment::Result<()> {
+        Jail::try_with(|jail| {
+            jail.clear_env();
+            jail.set_env("TRIAGE_PORT", "hunter2");
+            let message = Config::from_env()
+                .err()
+                .map(|e| e.to_string())
+                .unwrap_or_default();
+            assert!(message.contains("TRIAGE_PORT"), "{message}");
+            assert!(!message.contains("hunter2"), "{message}");
+            Ok(())
+        })
+    }
+
+    #[test]
+    fn tilde_data_dir_is_rejected() {
+        let err = absolute_data_dir(PathBuf::from("~/x")).err();
+        assert_eq!(err.map(|e| e.exit_code()), Some(2));
+    }
+
+    #[test]
+    fn relative_data_dir_becomes_absolute() -> TestResult {
+        assert!(absolute_data_dir(PathBuf::from("rel"))?.is_absolute());
+        Ok(())
     }
 
     #[test]
@@ -434,6 +531,10 @@ mod tests {
         let data = tmp.path().join("ro");
         fs::create_dir(&data)?;
         fs::set_permissions(&data, fs::Permissions::from_mode(0o500))?;
+        // Root ignores the mode bits, so there is nothing to test.
+        if fs::write(data.join("root-check"), b"").is_ok() {
+            return Ok(());
+        }
         let result = Paths::under(data.clone()).create();
         fs::set_permissions(&data, fs::Permissions::from_mode(0o700))?;
 

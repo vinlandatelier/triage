@@ -24,8 +24,9 @@ subprocess with the user's own login. No API keys.
 - Documentation names no individual people. Use "the maintainer" or "the user".
 - When a question needs a person, mention whoever has the most context: the PR
   or issue author, a reviewer, the author of the conflicting change. Mention
-  only organization members, never outside contributors or the public. Check
-  `author_association` is `OWNER` or `MEMBER` (`gh api repos/{owner}/{repo}/pulls/<N>`).
+  only organization members, never outside contributors or the public: the
+  `author_association` on their PR, review, or comment must be `OWNER` or
+  `MEMBER`. When no one qualifies, mention the maintainer.
 
 ## Restacking
 

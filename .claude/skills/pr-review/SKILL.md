@@ -15,7 +15,9 @@ lines, plus a summary of at most three lines.
 - **Incremental review** (a later push): only `git diff <before>..<after>`.
   Code that did not change since your last review is out of scope.
 - Read the linked issue (`Closes #N`). The first check is always: does the diff
-  do what the issue says, nothing more, nothing less.
+  do what the issue says, nothing more, nothing less. In a stacked PR, flag any
+  change to code from a lower PR that the issue does not need (🟠): it belongs
+  on the lower PR's branch.
 - Read the code around each hunk, its callers and tests, and grep for sibling
   patterns. Most real bugs sit at the seams between the diff and what it touches.
 

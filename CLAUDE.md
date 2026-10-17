@@ -12,6 +12,8 @@ subprocess with the user's own login. No API keys.
 - When a change depends on another unmerged PR, stack it with `gh stack` instead
   of waiting or bundling. Prefer a stack of small PRs over one large PR whenever
   the pieces are reviewable on their own.
+- In a stack, change code from lower PRs only where your PR needs it. A defect
+  in a lower PR gets fixed on that PR's branch, then restack.
 - Never push directly to `master`. Never merge; the maintainer merges.
 - The only rewrite of a pushed branch is a restack: `gh stack rebase`, then
   `gh stack push` (`--force-with-lease`). Never plain `--force`.

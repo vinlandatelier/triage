@@ -22,6 +22,7 @@ pub const REQUIRED: &[&str] = &[];
 const ENV_PREFIX: &str = "TRIAGE_";
 const DATA_DIR_VAR: &str = "TRIAGE_DATA_DIR";
 const OTEL_ENDPOINT_VAR: &str = "TRIAGE_OTEL_ENDPOINT";
+const OTEL_TRACES_VAR: &str = "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT";
 const OTEL_STANDARD_VAR: &str = "OTEL_EXPORTER_OTLP_ENDPOINT";
 
 #[derive(Debug, thiserror::Error)]
@@ -64,10 +65,6 @@ impl From<figment::Error> for Error {
                         Kind::InvalidType(_, expected) | Kind::InvalidValue(_, expected) => {
                             format!("{var}: expected {expected}")
                         }
-                        // url's custom error quotes the input.
-                        Kind::Message(_) if var == OTEL_ENDPOINT_VAR => {
-                            format!("{var}: expected an http(s) URL")
-                        }
                         kind => format!("{var}: {kind}"),
                     }
                 })
@@ -104,7 +101,12 @@ pub struct Config {
     pub log_level: String,
     pub log_file_level: String,
     pub log_format: LogFormat,
-    pub otel_endpoint: Option<Url>,
+    // Three vars feed it, so `from_env` reads it instead of figment.
+    #[serde(skip)]
+    pub otel_endpoint: Option<OtelEndpoint>,
+    /// Bad settings that fell back instead of failing; telemetry logs them once it starts.
+    #[serde(skip)]
+    pub warnings: Vec<String>,
 }
 
 impl Default for Config {
@@ -115,6 +117,7 @@ impl Default for Config {
             log_file_level: "info,triage=debug".into(),
             log_format: LogFormat::Columns,
             otel_endpoint: None,
+            warnings: Vec::new(),
         }
     }
 }
@@ -141,13 +144,7 @@ impl Config {
                 .is_none_or(|v| !v.is_empty())
         });
         let mut config: Self = Figment::from(env).extract()?;
-        match &config.otel_endpoint {
-            Some(url) => check_otel_endpoint(OTEL_ENDPOINT_VAR, url)?,
-            None => {
-                config.otel_endpoint =
-                    otel_standard_endpoint(std::env::var(OTEL_STANDARD_VAR).ok())?;
-            }
-        }
+        (config.otel_endpoint, config.warnings) = otel_endpoint()?;
         config.validate()?;
         Ok(config)
     }
@@ -182,11 +179,11 @@ impl Config {
             log_file_level,
             log_format,
             otel_endpoint,
+            warnings: _,
         } = self;
-        // A `Url`'s string form keeps userinfo credentials.
         let otel_endpoint = otel_endpoint
             .as_ref()
-            .map_or_else(|| "-".to_owned(), redact_userinfo);
+            .map_or_else(|| "-".to_owned(), ToString::to_string);
         [
             ("port", port.to_string()),
             ("log_level", log_level.clone()),
@@ -209,17 +206,74 @@ impl fmt::Debug for Config {
             log_file_level,
             log_format,
             otel_endpoint,
+            warnings,
         } = self;
         f.debug_struct("Config")
             .field("port", port)
             .field("log_level", log_level)
             .field("log_file_level", log_file_level)
             .field("log_format", log_format)
-            .field(
-                "otel_endpoint",
-                &otel_endpoint.as_ref().map(redact_userinfo),
-            )
+            .field("otel_endpoint", otel_endpoint)
+            .field("warnings", warnings)
             .finish()
+    }
+}
+
+/// Where OTLP traces go, and which env var set it.
+#[derive(Clone, PartialEq, Eq)]
+pub struct OtelEndpoint {
+    url: Url,
+    traces: Url,
+    var: &'static str,
+}
+
+impl OtelEndpoint {
+    /// The URL the exporter posts spans to.
+    pub fn traces(&self) -> &Url {
+        &self.traces
+    }
+
+    // Errors never echo the value, which may carry credentials.
+    fn parse(var: &'static str, value: &OsStr) -> Result<Self, String> {
+        let invalid = || format!("{var}: expected an http URL with a host");
+        let url = value
+            .to_str()
+            .and_then(|v| Url::parse(v).ok())
+            .ok_or_else(invalid)?;
+        // The exporter is built without TLS, so every https export would fail.
+        if url.scheme() == "https" {
+            return Err(format!(
+                "{var}: https is not supported; use an http collector"
+            ));
+        }
+        // `localhost:4317` parses as a URL with scheme `localhost`.
+        if url.scheme() != "http" || !url.has_host() {
+            return Err(invalid());
+        }
+        // The OTel spec takes the signal-specific var verbatim and appends the path to the base.
+        let traces = if var == OTEL_TRACES_VAR {
+            url.clone()
+        } else {
+            traces_url(&url).map_err(|_| invalid())?
+        };
+        Ok(Self { url, traces, var })
+    }
+}
+
+// A `Url`'s string form and `Debug` keep userinfo credentials.
+impl fmt::Display for OtelEndpoint {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(&redact_userinfo(&self.url))?;
+        if self.var != OTEL_ENDPOINT_VAR {
+            write!(f, " (from {})", self.var)?;
+        }
+        Ok(())
+    }
+}
+
+impl fmt::Debug for OtelEndpoint {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{self}")
     }
 }
 
@@ -235,28 +289,36 @@ pub(crate) fn redact_userinfo(url: &Url) -> String {
     url.into()
 }
 
-fn otel_standard_endpoint(value: Option<String>) -> Result<Option<Url>> {
-    value
-        .filter(|v| !v.is_empty())
-        .map(|v| {
-            let url = Url::parse(&v).map_err(|_| otel_endpoint_error(OTEL_STANDARD_VAR))?;
-            check_otel_endpoint(OTEL_STANDARD_VAR, &url)?;
-            Ok(url)
-        })
-        .transpose()
-}
-
-// `localhost:4317` parses as a URL with scheme `localhost`.
-fn check_otel_endpoint(var: &str, url: &Url) -> Result<()> {
-    if matches!(url.scheme(), "http" | "https") && url.has_host() {
-        Ok(())
-    } else {
-        Err(otel_endpoint_error(var))
+/// `TRIAGE_OTEL_ENDPOINT` wins, and set but empty turns OTLP off. A bad value there exits 2. The
+/// standard vars may be set shell-wide for other tools, so a bad one only warns and leaves OTLP off.
+fn otel_endpoint() -> Result<(Option<OtelEndpoint>, Vec<String>)> {
+    let var = std::env::var_os;
+    if let Some(value) = var(OTEL_ENDPOINT_VAR) {
+        if value.is_empty() {
+            return Ok((None, Vec::new()));
+        }
+        let endpoint = OtelEndpoint::parse(OTEL_ENDPOINT_VAR, &value)
+            .map_err(|err| Error::Invalid(vec![err]))?;
+        return Ok((Some(endpoint), Vec::new()));
     }
+    let Some((name, value)) = [OTEL_TRACES_VAR, OTEL_STANDARD_VAR]
+        .into_iter()
+        .find_map(|name| var(name).filter(|v| !v.is_empty()).map(|v| (name, v)))
+    else {
+        return Ok((None, Vec::new()));
+    };
+    Ok(match OtelEndpoint::parse(name, &value) {
+        Ok(endpoint) => (Some(endpoint), Vec::new()),
+        Err(err) => (None, vec![format!("{err}; OTLP export is off")]),
+    })
 }
 
-fn otel_endpoint_error(var: &str) -> Error {
-    Error::Invalid(vec![format!("{var}: expected an http(s) URL with a host")])
+fn traces_url(base: &Url) -> Result<Url, url::ParseError> {
+    let mut base = base.clone();
+    if !base.path().ends_with('/') {
+        base.set_path(&format!("{}/", base.path()));
+    }
+    base.join("v1/traces")
 }
 
 /// Serde stops at the first missing field, so this names every absent var at once.
@@ -484,8 +546,11 @@ mod tests {
             assert_eq!(config.port, 8000);
             assert_eq!(config.log_format, LogFormat::Pretty);
             assert_eq!(
-                config.otel_endpoint.map(String::from).as_deref(),
-                Some("http://localhost:4317/")
+                config
+                    .otel_endpoint
+                    .map(|e| e.traces.to_string())
+                    .as_deref(),
+                Some("http://localhost:4317/v1/traces")
             );
             Ok(())
         })
@@ -604,31 +669,104 @@ mod tests {
             jail.set_env(OTEL_STANDARD_VAR, "http://collector:4318");
             let config = Config::from_env().map_err(|e| e.to_string())?;
             assert_eq!(
-                config.otel_endpoint.map(String::from).as_deref(),
-                Some("http://collector:4318/")
+                config
+                    .otel_endpoint
+                    .map(|e| e.traces.to_string())
+                    .as_deref(),
+                Some("http://collector:4318/v1/traces")
             );
             jail.set_env("TRIAGE_OTEL_ENDPOINT", "http://triage:4318");
             let config = Config::from_env().map_err(|e| e.to_string())?;
             assert_eq!(
-                config.otel_endpoint.map(String::from).as_deref(),
-                Some("http://triage:4318/")
+                config
+                    .otel_endpoint
+                    .map(|e| e.traces.to_string())
+                    .as_deref(),
+                Some("http://triage:4318/v1/traces")
             );
             Ok(())
         })
     }
 
     #[test]
-    fn malformed_standard_otel_var_names_it() -> figment::Result<()> {
+    fn malformed_standard_otel_vars_warn_and_leave_otlp_off() -> figment::Result<()> {
+        for (var, value) in [
+            (OTEL_STANDARD_VAR, "not a url"),
+            (OTEL_TRACES_VAR, "https://user:hunter2@collector:4318"),
+        ] {
+            Jail::try_with(|jail| {
+                jail.clear_env();
+                jail.set_env(var, value);
+                let config = Config::from_env().map_err(|e| e.to_string())?;
+                assert_eq!(config.otel_endpoint, None);
+                let [warning] = config.warnings.as_slice() else {
+                    return Err(format!("want one warning, got {:?}", config.warnings).into());
+                };
+                assert!(warning.contains(var), "{warning}");
+                assert!(!warning.contains("hunter2"), "{warning}");
+                Ok(())
+            })?;
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn https_triage_endpoint_exits_2() -> figment::Result<()> {
         Jail::try_with(|jail| {
             jail.clear_env();
-            jail.set_env(OTEL_STANDARD_VAR, "not a url");
-            let message = Config::from_env()
-                .err()
-                .map(|e| e.to_string())
-                .unwrap_or_default();
-            assert!(message.contains(OTEL_STANDARD_VAR), "{message}");
+            jail.set_env(OTEL_ENDPOINT_VAR, "https://collector:4318");
+            let Err(err) = Config::from_env() else {
+                return Err("https must fail".into());
+            };
+            assert_eq!(err.exit_code(), 2);
+            let message = err.to_string();
+            assert!(message.contains("https is not supported"), "{message}");
             Ok(())
         })
+    }
+
+    #[test]
+    fn empty_triage_endpoint_disables_otlp() -> figment::Result<()> {
+        Jail::try_with(|jail| {
+            jail.clear_env();
+            jail.set_env(OTEL_ENDPOINT_VAR, "");
+            jail.set_env(OTEL_STANDARD_VAR, "http://collector:4318");
+            assert_eq!(
+                Config::from_env().map_err(|e| e.to_string())?,
+                Config::default()
+            );
+            Ok(())
+        })
+    }
+
+    #[test]
+    fn traces_var_wins_over_base_and_is_used_verbatim() -> figment::Result<()> {
+        Jail::try_with(|jail| {
+            jail.clear_env();
+            jail.set_env(OTEL_STANDARD_VAR, "http://base:4318");
+            jail.set_env(OTEL_TRACES_VAR, "http://traces:4318/custom");
+            let config = Config::from_env().map_err(|e| e.to_string())?;
+            assert_eq!(
+                config
+                    .otel_endpoint
+                    .map(|e| e.traces.to_string())
+                    .as_deref(),
+                Some("http://traces:4318/custom")
+            );
+            Ok(())
+        })
+    }
+
+    #[test]
+    fn traces_path_is_appended_to_base() -> TestResult {
+        for (base, want) in [
+            ("http://h:4318", "http://h:4318/v1/traces"),
+            ("http://h:4318/otlp", "http://h:4318/otlp/v1/traces"),
+            ("http://h:4318/otlp/", "http://h:4318/otlp/v1/traces"),
+        ] {
+            assert_eq!(traces_url(&Url::parse(base)?)?.as_str(), want);
+        }
+        Ok(())
     }
 
     #[test]
@@ -662,7 +800,10 @@ mod tests {
     #[test]
     fn entries_name_every_var() -> TestResult {
         let config = Config {
-            otel_endpoint: Some(Url::parse("http://localhost:4317")?),
+            otel_endpoint: Some(OtelEndpoint::parse(
+                OTEL_ENDPOINT_VAR,
+                OsStr::new("http://localhost:4317"),
+            )?),
             ..Config::default()
         };
         assert_eq!(
@@ -682,7 +823,10 @@ mod tests {
     #[test]
     fn entries_redact_endpoint_credentials() -> TestResult {
         let config = Config {
-            otel_endpoint: Some(Url::parse("http://user:hunter2@host:4317/v1?x=1")?),
+            otel_endpoint: Some(OtelEndpoint::parse(
+                OTEL_STANDARD_VAR,
+                OsStr::new("http://user:hunter2@host:4317/v1?x=1"),
+            )?),
             ..Config::default()
         };
         let entries = config.entries();
@@ -690,14 +834,20 @@ mod tests {
             .iter()
             .find(|(key, _)| key == OTEL_ENDPOINT_VAR)
             .map(|(_, value)| value.as_str());
-        assert_eq!(endpoint, Some("http://redacted:redacted@host:4317/v1?x=1"));
+        assert_eq!(
+            endpoint,
+            Some("http://redacted:redacted@host:4317/v1?x=1 (from OTEL_EXPORTER_OTLP_ENDPOINT)")
+        );
         Ok(())
     }
 
     #[test]
     fn debug_redacts_endpoint_credentials() -> TestResult {
         let config = Config {
-            otel_endpoint: Some(Url::parse("http://user:hunter2@host:4317")?),
+            otel_endpoint: Some(OtelEndpoint::parse(
+                OTEL_ENDPOINT_VAR,
+                OsStr::new("http://user:hunter2@host:4317"),
+            )?),
             ..Config::default()
         };
         let debug = format!("{config:?}");

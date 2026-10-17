@@ -39,7 +39,8 @@ impl Drop for Otel {
     }
 }
 
-/// The OTLP layer and the handle that flushes it. `None` endpoint builds nothing.
+/// The OTLP layer and the handle that flushes it, posting to `endpoint` as given. `None` builds
+/// nothing.
 pub fn layer<S>(
     endpoint: Option<&Url>,
     warnings: &mut Vec<String>,
@@ -71,20 +72,10 @@ where
 fn exporter(endpoint: &Url) -> Result<opentelemetry_otlp::SpanExporter, String> {
     opentelemetry_otlp::SpanExporter::builder()
         .with_http()
-        .with_endpoint(traces_url(endpoint).map_err(|e| e.to_string())?)
+        .with_endpoint(endpoint.as_str())
         .with_timeout(EXPORT_TIMEOUT)
         .build()
         .map_err(|e| e.to_string())
-}
-
-/// The base endpoint plus `v1/traces`, matching how `OTEL_EXPORTER_OTLP_ENDPOINT` is read.
-/// A programmatic endpoint is otherwise used verbatim by the exporter.
-fn traces_url(base: &Url) -> Result<Url, url::ParseError> {
-    let mut base = base.clone();
-    if !base.path().ends_with('/') {
-        base.set_path(&format!("{}/", base.path()));
-    }
-    base.join("v1/traces")
 }
 
 fn provider_builder() -> TracerProviderBuilder {
@@ -191,18 +182,6 @@ mod tests {
         let url = Url::parse("http://127.0.0.1:1")?;
         assert!(layer::<Registry>(Some(&url), &mut warnings).is_some());
         assert!(warnings.is_empty(), "{warnings:?}");
-        Ok(())
-    }
-
-    #[test]
-    fn traces_path_is_appended_to_base() -> TestResult {
-        for (base, want) in [
-            ("http://h:4318", "http://h:4318/v1/traces"),
-            ("http://h:4318/otlp", "http://h:4318/otlp/v1/traces"),
-            ("http://h:4318/otlp/", "http://h:4318/otlp/v1/traces"),
-        ] {
-            assert_eq!(traces_url(&Url::parse(base)?)?.as_str(), want);
-        }
         Ok(())
     }
 

@@ -34,7 +34,8 @@ pub fn triage(dir: &Path) -> Command {
         // Keeps a developer's `.env` out of the run.
         .current_dir(dir)
         .env_remove("TRIAGE_OTEL_ENDPOINT")
-        .env_remove("OTEL_EXPORTER_OTLP_ENDPOINT");
+        .env_remove("OTEL_EXPORTER_OTLP_ENDPOINT")
+        .env_remove("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT");
     command
 }
 

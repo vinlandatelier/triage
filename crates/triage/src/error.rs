@@ -32,12 +32,12 @@ pub struct FieldError {
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
-pub struct Extensions {
+pub struct ProblemExtensions {
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub errors: Vec<FieldError>,
 }
 
-pub type Problem = ProblemDetails<Extensions>;
+pub type Problem = ProblemDetails<ProblemExtensions>;
 
 impl AppError {
     pub fn status(&self) -> StatusCode {
@@ -76,7 +76,7 @@ impl AppError {
         let mut problem = ProblemDetails::new()
             .with_status(status)
             .with_title(self.title())
-            .with_extensions(Extensions::default());
+            .with_extensions(ProblemExtensions::default());
         if let Ok(uri) = Uri::try_from(format!("{PROBLEM_BASE}{}", self.slug())) {
             problem = problem.with_type(uri);
         }
@@ -94,7 +94,8 @@ impl AppError {
 impl IntoResponse for AppError {
     fn into_response(self) -> Response {
         if let Self::Internal(err) = &self {
-            tracing::error!(error = %format_args!("{err:#}"), "internal error");
+            let err: &(dyn std::error::Error + 'static) = err.as_ref();
+            tracing::error!(error = err, "internal error");
         }
         let problem = self.problem();
         let mut response = problem.clone().into_response();

@@ -338,7 +338,14 @@ impl Visit for JsonVisitor<'_> {
     }
 
     fn record_error(&mut self, field: &Field, value: &(dyn std::error::Error + 'static)) {
-        self.0.insert(field.name().into(), value.to_string().into());
+        let mut chain = value.to_string();
+        let mut source = value.source();
+        while let Some(err) = source {
+            chain.push_str(": ");
+            chain.push_str(&err.to_string());
+            source = err.source();
+        }
+        self.0.insert(field.name().into(), chain.into());
     }
 
     fn record_debug(&mut self, field: &Field, value: &dyn fmt::Debug) {
@@ -444,6 +451,21 @@ mod tests {
         assert!(
             line.get("method").is_none(),
             "span fields stay off the line"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn error_field_carries_the_source_chain() -> TestResult {
+        #[derive(Debug, thiserror::Error)]
+        #[error("{0}")]
+        struct Chain(&'static str, #[source] Option<Box<Chain>>);
+
+        let err = Chain("cannot save", Some(Box::new(Chain("disk full", None))));
+        let lines = capture(|| tracing::error!(error = &err as &dyn std::error::Error, "x"))?;
+        assert_eq!(
+            lines.first().map(|l| &l["error"]),
+            Some(&"cannot save: disk full".into())
         );
         Ok(())
     }

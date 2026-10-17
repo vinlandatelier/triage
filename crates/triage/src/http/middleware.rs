@@ -5,6 +5,7 @@ use std::time::Duration;
 
 use axum::Router;
 use axum::extract::{DefaultBodyLimit, Request};
+use axum::http::header::{CONTENT_LENGTH, CONTENT_TYPE};
 use axum::http::{HeaderName, HeaderValue, StatusCode, Uri};
 use axum::middleware::{self, Next};
 use axum::response::{IntoResponse as _, Response};
@@ -42,15 +43,17 @@ pub fn trace(router: Router) -> Router {
         .layer(middleware::map_request(drop_unusable_request_id))
 }
 
-/// `SetRequestIdLayer` keeps any incoming header, so an empty, oversized, or non-ASCII id
-/// would reach the logs and response. Spaces are rejected so an id cannot fake extra
-/// columns in the stderr line.
+/// `SetRequestIdLayer` keeps any incoming header, so an unusable id would reach the logs
+/// and response. Spaces could fake extra columns in the stderr line, and anything outside
+/// URI-unreserved characters could not round-trip as the problem `instance`.
 async fn drop_unusable_request_id(mut request: Request) -> Request {
     let usable = request.headers().get(X_REQUEST_ID).is_none_or(|value| {
         let bytes = value.as_bytes();
-        !bytes.is_empty()
+        bytes.first().is_some_and(u8::is_ascii_alphanumeric)
             && bytes.len() <= MAX_INCOMING_ID
-            && bytes.iter().all(u8::is_ascii_graphic)
+            && bytes
+                .iter()
+                .all(|b| b.is_ascii_alphanumeric() || b"-._~".contains(b))
     });
     if !usable {
         request.headers_mut().remove(X_REQUEST_ID);
@@ -58,7 +61,7 @@ async fn drop_unusable_request_id(mut request: Request) -> Request {
     request
 }
 
-/// Caps request bodies, turns panics into 500s, and adds the request id as `instance` to
+/// Caps extractor bodies, turns panics into 500s, and adds the request id as `instance` to
 /// every problem. Must sit inside [`trace`], which sets the id.
 pub fn problems(router: Router) -> Router {
     router
@@ -88,16 +91,28 @@ async fn render_problem(request: Request, next: Next) -> Response {
     let mut response = next.run(request).await;
     let problem = match response.extensions_mut().remove::<Problem>() {
         Some(problem) => problem,
-        // axum's body-limit rejection is plain text.
-        None if response.status() == StatusCode::PAYLOAD_TOO_LARGE => {
-            AppError::PayloadTooLarge.problem()
-        }
+        None if is_body_limit_rejection(&response) => AppError::PayloadTooLarge.problem(),
         None => return response,
     };
-    match instance {
-        Some(instance) => problem.with_instance(instance).into_response(),
-        None => problem.into_response(),
-    }
+    let problem = match instance {
+        Some(instance) => problem.with_instance(instance),
+        None => problem,
+    };
+    // Swap only the body so headers the handler set (`retry-after`, `allow`) survive.
+    let (mut parts, _) = response.into_parts();
+    let (rendered, body) = problem.into_response().into_parts();
+    parts.headers.remove(CONTENT_LENGTH);
+    parts.headers.extend(rendered.headers);
+    Response::from_parts(parts, body)
+}
+
+/// axum answers an over-limit body with a plain-text 413; a handler's own 413 is left alone.
+fn is_body_limit_rejection(response: &Response) -> bool {
+    response.status() == StatusCode::PAYLOAD_TOO_LARGE
+        && response
+            .headers()
+            .get(CONTENT_TYPE)
+            .is_some_and(|value| value.as_bytes().starts_with(b"text/plain"))
 }
 
 /// Unknown `/api` paths answer with a problem; the rest stay free for the web UI.
@@ -297,7 +312,15 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn unusable_incoming_request_id_is_replaced() -> TestResult {
         let long = "a".repeat(MAX_INCOMING_ID + 1);
-        for sent in ["", "x  status=500  req=y", "caf\u{e9}", long.as_str()] {
+        for sent in [
+            "",
+            "x  status=500  req=y",
+            "caf\u{e9}",
+            "a\"b",
+            "http://evil.example/x",
+            "-lead",
+            long.as_str(),
+        ] {
             let (response, lines) = serve_one(
                 Router::new(),
                 &format!("GET /missing HTTP/1.1\r\nx-request-id: {sent}"),
@@ -335,7 +358,7 @@ mod tests {
         Ok(serde_json::from_str(body)?)
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "current_thread")]
     async fn not_found_instance_is_the_request_id() -> TestResult {
         let router = Router::new().route(
             "/item",
@@ -350,7 +373,56 @@ mod tests {
         Ok(())
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "current_thread")]
+    async fn kept_incoming_id_is_the_instance() -> TestResult {
+        let router = Router::new().fallback(fallback);
+        for sent in [
+            "from-client",
+            "A1-b.c_d~e",
+            "0190a0b1-7c2d-7e3f-8a4b-5c6d7e8f9a0b",
+        ] {
+            let (response, _) = serve_one(
+                problems(router.clone()),
+                &format!("GET /api/x HTTP/1.1\r\nx-request-id: {sent}"),
+            )
+            .await?;
+            assert_eq!(header(&response, "x-request-id"), Some(sent), "{response}");
+            assert_eq!(problem_body(&response)?["instance"], sent, "{response}");
+        }
+        Ok(())
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn problem_keeps_handler_headers() -> TestResult {
+        let router = Router::new().route(
+            "/busy",
+            get(|| async {
+                Err::<(), _>((
+                    [("retry-after", "5")],
+                    AppError::Conflict("try later".into()),
+                ))
+            }),
+        );
+        let (response, _) = serve_one(problems(router), "GET /busy HTTP/1.1").await?;
+        assert!(response.starts_with("HTTP/1.1 409"), "{response}");
+        assert_eq!(header(&response, "retry-after"), Some("5"), "{response}");
+        assert!(problem_body(&response)?["instance"].is_string());
+        Ok(())
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn handler_413_is_left_alone() -> TestResult {
+        let router = Router::new().route(
+            "/quota",
+            get(|| async { (StatusCode::PAYLOAD_TOO_LARGE, axum::Json("quota exceeded")) }),
+        );
+        let (response, _) = serve_one(problems(router), "GET /quota HTTP/1.1").await?;
+        assert!(response.starts_with("HTTP/1.1 413"), "{response}");
+        assert!(response.ends_with("\"quota exceeded\""), "{response}");
+        Ok(())
+    }
+
+    #[tokio::test(flavor = "current_thread")]
     async fn internal_logs_the_chain_under_the_request_id() -> TestResult {
         let router = Router::new().route(
             "/boom",
@@ -381,7 +453,7 @@ mod tests {
         panic!("kaboom")
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "current_thread")]
     async fn panic_returns_a_problem_and_the_server_keeps_serving() -> TestResult {
         let router = Router::new()
             .route("/panic", get(kaboom))
@@ -407,7 +479,7 @@ mod tests {
         Ok(())
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "current_thread")]
     async fn oversized_body_is_a_413_problem() -> TestResult {
         let router = Router::new().route(
             "/upload",
@@ -430,16 +502,22 @@ mod tests {
         Ok(())
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "current_thread")]
     async fn unknown_api_path_is_a_404_problem() -> TestResult {
         let router = Router::new().fallback(fallback);
         let (api, _) = serve_one(problems(router.clone()), "GET /api/nope HTTP/1.1").await?;
         assert!(api.starts_with("HTTP/1.1 404"), "{api}");
         assert_eq!(problem_body(&api)?["detail"], "no route for /api/nope");
 
-        let (other, _) = serve_one(problems(router), "GET /nope HTTP/1.1").await?;
-        assert!(other.starts_with("HTTP/1.1 404"), "{other}");
-        assert_eq!(header(&other, "content-type"), None, "{other}");
+        let (bare, _) = serve_one(problems(router.clone()), "GET /api HTTP/1.1").await?;
+        assert_eq!(problem_body(&bare)?["status"], 404);
+
+        for path in ["/nope", "/apix"] {
+            let (other, _) =
+                serve_one(problems(router.clone()), &format!("GET {path} HTTP/1.1")).await?;
+            assert!(other.starts_with("HTTP/1.1 404"), "{other}");
+            assert_eq!(header(&other, "content-type"), None, "{other}");
+        }
         Ok(())
     }
 }

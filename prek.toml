@@ -29,5 +29,6 @@ hooks = [
   { id = "cargo-fmt", name = "cargo fmt", language = "system", entry = "just fmt-check", files = '(\.rs$|^Cargo\.(toml|lock)$|/Cargo\.toml$|^(rustfmt|rust-toolchain)\.toml$)', pass_filenames = false },
   { id = "schema-drift", name = "schema drift", language = "system", entry = "just db-schema-check", files = '^crates/triage/(migrations/|schema\.sql$)', pass_filenames = false },
   { id = "openapi-drift", name = "openapi drift", language = "system", entry = "just openapi-check", files = '^(Cargo\.(toml|lock)$|crates/triage/(Cargo\.toml$|src/|openapi\.json$))', pass_filenames = false },
+  { id = "check-layout", name = "layout check", language = "system", entry = "just check-layout", files = '^crates/triage/src/', pass_filenames = false },
   { id = "cargo-clippy", name = "cargo clippy", language = "system", entry = "just clippy", files = '(\.rs$|^Cargo\.(toml|lock)$|/Cargo\.toml$|^(rustfmt|rust-toolchain)\.toml$)', pass_filenames = false },
 ]

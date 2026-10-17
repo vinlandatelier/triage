@@ -15,7 +15,7 @@ triage/
   .bun-version       bun version for CI and `just setup`
   prek.toml  renovate.json  .github/workflows/
   .cargo/config.toml   SQLX_OFFLINE=true
-  scripts/           check-layout.sh
+  scripts/           check-layout.sh claude-format.sh
   tools/gen-api/     openapi-ts.config.ts nocheck.ts, hey-api pinned to TypeScript 6
   crates/triage/
     Cargo.toml  build.rs  migrations/  .sqlx/  openapi.json  schema.sql
@@ -51,7 +51,7 @@ triage/
       features/<name>/
       test/
   .claude/
-    settings.json        hooks
+    settings.json        PostToolUse edit hook
     skills/              committed skills
 ```
 
@@ -176,12 +176,14 @@ Web tests run on Vitest with jsdom, configured in the `test` block of `web/vite.
 
 | layer | trigger | runs |
 |---|---|---|
-| edit hook | Claude Code PostToolUse on Edit/Write | `cargo fmt` or `biome check --write` on that file |
+| edit hook | Claude Code PostToolUse on Edit/Write | `rustfmt` or `biome check --write` on that file |
 | prek | commit | fmt, clippy, layout check, biome, react-doctor, schema, openapi, and api client drift, builtin file checks, actionlint, commitlint |
 | `just check` | agent before PR, human anytime | prek set + tsc, nextest, vitest, knip, cargo-deny, cargo-machete, sqlx offline check, api client drift |
 | CI | PR | `just check` split into jobs, ubuntu + macos for nextest, plus `just build-web`, then `just e2e` |
 
 `scripts/check-layout.sh` enforces rules 2, 3, and 8. It prints `file: rule` per violation and exits 1 on any. It ignores `//` comments, so docs may name the forbidden items.
+
+`.claude/settings.json` runs `scripts/claude-format.sh` after every Edit or Write. The script reads `tool_input.file_path` from the hook JSON with `sed`, since `jq` is not a dev tool. A `.rs` file goes through `rustfmt` alone, because `cargo fmt` reformats the whole workspace. A `.ts`, `.tsx`, `.js`, `.jsx`, `.json`, or `.css` file under `web/` goes through `web/node_modules/.bin/biome check --write`, run from `web/`; `bunx` is avoided because it downloads biome when it is missing. The script prints nothing and always exits 0. A missing formatter prints one `systemMessage` per tool per session, tracked by a marker file in `$TMPDIR`.
 
 `just check-web` runs `bun run lint`, `typecheck`, `doctor`, `knip`, and `test`, in that order. `doctor` is react-doctor with `-y --no-telemetry --blocking warning`, so a warning fails it. `web/doctor.config.ts` keeps the recommended rules and turns off the Socket.dev supply-chain scan, which makes one network request per dependency. react-doctor turns on its `tanstack-query` rules by itself once `@tanstack/react-query` is a dependency. `web/knip.json` adds `src/routes/**`, `env.ts`, and `doctor.config.ts` as entries; everything else is knip's zero-config defaults. `src/api/**` is in knip's `ignore`.
 

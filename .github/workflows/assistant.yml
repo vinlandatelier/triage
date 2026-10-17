@@ -55,6 +55,7 @@ jobs:
       github.event_name == 'pull_request_review_comment' &&
       github.event.comment.in_reply_to_id &&
       github.event.comment.user.type != 'Bot' &&
+      contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association) &&
       !contains(github.event.comment.body, '@abyan-cc')
     runs-on: ubuntu-latest
     steps:
@@ -83,7 +84,7 @@ jobs:
         uses: oven-sh/setup-bun@v2
 
       - if: steps.root.outputs.ours == 'true'
-        run: gh extension install github/gh-stack
+        run: gh extension install github/gh-stack --pin v0.2.1
         env:
           GH_TOKEN: ${{ steps.app.outputs.token }}
 

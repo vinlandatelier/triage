@@ -12,8 +12,8 @@ lines, plus a summary of at most three lines.
 
 - **Full review** (first run on the PR): the PR's own diff against its base
   branch, `gh pr diff <n>`. For a stacked PR, never re-review the base PR's content.
-- **Incremental review** (a later push): only `git diff <before>..<after>`.
-  Code that did not change since your last review is out of scope.
+- **Incremental review** (a later push): only the commits the workflow lists
+  as new. Code that did not change since your last review is out of scope.
 - Read the linked issue (`Closes #N`). The first check is always: does the diff
   do what the issue says, nothing more, nothing less. In a stacked PR, flag any
   change to code from a lower PR that the issue does not need (🟠): it belongs

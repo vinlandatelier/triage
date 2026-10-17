@@ -43,24 +43,28 @@ jobs:
           ref: ${{ github.event.pull_request.head.sha || format('refs/pull/{0}/head', inputs.pr) }}
           fetch-depth: 0
 
-      # A restack rewrites commits without changing them. Same patch ids before and after
-      # means nothing new to review, so skip without starting a model session.
+      # Scope from the commit the assistant last reviewed, not event.before: a cancelled run
+      # never posts, so its commits stay in scope for the next one. A commit counts as new only
+      # if its patch is not already in what was reviewed; restacked and rebased-in lower-PR
+      # commits drop out, and a pure restack leaves nothing to review.
       - id: scope
         env:
+          GH_TOKEN: ${{ steps.app.outputs.token }}
           ACTION: ${{ github.event.action }}
-          BEFORE: ${{ github.event.before }}
-          AFTER: ${{ github.event.after }}
+          PR: ${{ github.event.pull_request.number }}
           BASE: ${{ github.event.pull_request.base.ref }}
         run: |
-          if [ "$ACTION" != synchronize ]; then echo "mode=full" >> "$GITHUB_OUTPUT"; exit 0; fi
-          git fetch -q origin "$BEFORE" "$BASE" || { echo "mode=full" >> "$GITHUB_OUTPUT"; exit 0; }
-          ids() { git log -p --format='commit %H' "$1" | git patch-id --stable | cut -d' ' -f1 | sort; }
-          n=$(git rev-list --count "origin/$BASE..$AFTER")
-          if [ "$(ids "origin/$BASE..$AFTER")" = "$(ids "$BEFORE~$n..$BEFORE" 2>/dev/null)" ]; then
-            echo "mode=skip" >> "$GITHUB_OUTPUT"
-          else
-            echo "mode=incremental" >> "$GITHUB_OUTPUT"
-          fi
+          full() { echo "mode=full" >> "$GITHUB_OUTPUT"; exit 0; }
+          [ "$ACTION" = synchronize ] || full
+          last=$(gh api "repos/${{ github.repository }}/pulls/$PR/reviews" \
+            --jq '[.[] | select(.user.login == "abyan-cc[bot]")] | last | .commit_id // empty')
+          [ -n "$last" ] || full
+          git fetch -q origin "$last" || full
+          ids() { git log -p --format='commit %H' "$1" | git patch-id --stable; }
+          new=$(awk 'NR == FNR { seen[$1] = 1; next } !seen[$1] { print $2 }' \
+            <(ids "origin/master..$last") <(ids "origin/$BASE..HEAD") | tr '\n' ' ')
+          if [ -z "$new" ]; then echo "mode=skip" >> "$GITHUB_OUTPUT"
+          else { echo "mode=incremental"; echo "commits=$new"; } >> "$GITHUB_OUTPUT"; fi
 
       - if: steps.scope.outputs.mode != 'skip'
         uses: anthropics/claude-code-action@v1
@@ -69,7 +73,7 @@ jobs:
           github_token: ${{ steps.app.outputs.token }}
           prompt: |
             Review PR #${{ github.event.pull_request.number || inputs.pr }} with the pr-review skill in .claude/skills/pr-review/SKILL.md.
-            Mode: ${{ steps.scope.outputs.mode }}.${{ steps.scope.outputs.mode == 'incremental' && format(' Before: {0}. After: {1}.', github.event.before, github.event.after) || '' }}
+            Mode: ${{ steps.scope.outputs.mode }}.${{ steps.scope.outputs.mode == 'incremental' && format(' Review only these new commits (git show each): {0}', steps.scope.outputs.commits) || '' }}
             Do not edit files or push.
           claude_args: >-
             --model claude-opus-5-5 --max-turns 80

@@ -47,6 +47,9 @@ it behind. Restack them:
 3. If a resolution needs a product decision, or both intents might not survive,
    run `gh stack rebase --abort` and comment on that PR mentioning the
    authors of the conflicting changes: one line per conflict with file, options, and a recommendation.
+
+   run `gh stack rebase --abort` and ask the maintainer on that PR, as in
+   "Asking the maintainer" below.
 4. Run the checks on each branch the rebase changed, then `gh stack push`.
 
 Never merge one branch into another to catch up (`git merge`, `git pull`): a

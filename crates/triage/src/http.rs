@@ -14,6 +14,7 @@ use tokio::net::TcpListener;
 use crate::config::{Config, Paths};
 use crate::{store, telemetry};
 
+mod assets;
 mod middleware;
 mod openapi;
 mod probe;

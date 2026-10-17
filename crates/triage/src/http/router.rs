@@ -7,6 +7,7 @@ use utoipa::openapi::OpenApi;
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
 
+use super::assets;
 use super::middleware;
 use super::openapi;
 use super::state::AppState;
@@ -19,7 +20,7 @@ pub fn router(state: AppState) -> Router {
     middleware::trace(middleware::problems(
         routes
             .route("/api/openapi.json", get(move || async move { Json(doc) }))
-            .fallback(middleware::fallback)
+            .fallback(assets::fallback)
             .with_state(state),
     ))
 }

@@ -116,16 +116,6 @@ fn is_body_limit_rejection(response: &Response) -> bool {
             .is_some_and(|value| value.as_bytes().starts_with(b"text/plain"))
 }
 
-/// Unknown `/api` paths answer with a problem; the rest stay free for the web UI.
-pub async fn fallback(uri: Uri) -> Response {
-    let path = uri.path();
-    if path == "/api" || path.starts_with("/api/") {
-        AppError::NotFound(format!("no route for {path}")).into_response()
-    } else {
-        StatusCode::NOT_FOUND.into_response()
-    }
-}
-
 /// Version 7 UUIDs, so ids sort by arrival.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct MakeRequestUuidV7;
@@ -382,7 +372,7 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn kept_incoming_id_is_the_instance() -> TestResult {
-        let router = Router::new().fallback(fallback);
+        let router = Router::new().fallback(crate::http::assets::fallback);
         for sent in [
             "from-client",
             "A1-b.c_d~e",
@@ -506,25 +496,6 @@ mod tests {
             body["instance"],
             header(response, "x-request-id").ok_or("no id")?
         );
-        Ok(())
-    }
-
-    #[tokio::test(flavor = "current_thread")]
-    async fn unknown_api_path_is_a_404_problem() -> TestResult {
-        let router = Router::new().fallback(fallback);
-        let (api, _) = serve_one(problems(router.clone()), "GET /api/nope HTTP/1.1").await?;
-        assert!(api.starts_with("HTTP/1.1 404"), "{api}");
-        assert_eq!(problem_body(&api)?["detail"], "no route for /api/nope");
-
-        let (bare, _) = serve_one(problems(router.clone()), "GET /api HTTP/1.1").await?;
-        assert_eq!(problem_body(&bare)?["status"], 404);
-
-        for path in ["/nope", "/apix"] {
-            let (other, _) =
-                serve_one(problems(router.clone()), &format!("GET {path} HTTP/1.1")).await?;
-            assert!(other.starts_with("HTTP/1.1 404"), "{other}");
-            assert_eq!(header(&other, "content-type"), None, "{other}");
-        }
         Ok(())
     }
 }

@@ -1,0 +1,106 @@
+---
+source: crates/triage/tests/api/hello.rs
+expression: body
+---
+[
+  {
+    "created_at": "[ts]",
+    "id": "[id]",
+    "name": "hello 24"
+  },
+  {
+    "created_at": "[ts]",
+    "id": "[id]",
+    "name": "hello 23"
+  },
+  {
+    "created_at": "[ts]",
+    "id": "[id]",
+    "name": "hello 22"
+  },
+  {
+    "created_at": "[ts]",
+    "id": "[id]",
+    "name": "hello 21"
+  },
+  {
+    "created_at": "[ts]",
+    "id": "[id]",
+    "name": "hello 20"
+  },
+  {
+    "created_at": "[ts]",
+    "id": "[id]",
+    "name": "hello 19"
+  },
+  {
+    "created_at": "[ts]",
+    "id": "[id]",
+    "name": "hello 18"
+  },
+  {
+    "created_at": "[ts]",
+    "id": "[id]",
+    "name": "hello 17"
+  },
+  {
+    "created_at": "[ts]",
+    "id": "[id]",
+    "name": "hello 16"
+  },
+  {
+    "created_at": "[ts]",
+    "id": "[id]",
+    "name": "hello 15"
+  },
+  {
+    "created_at": "[ts]",
+    "id": "[id]",
+    "name": "hello 14"
+  },
+  {
+    "created_at": "[ts]",
+    "id": "[id]",
+    "name": "hello 13"
+  },
+  {
+    "created_at": "[ts]",
+    "id": "[id]",
+    "name": "hello 12"
+  },
+  {
+    "created_at": "[ts]",
+    "id": "[id]",
+    "name": "hello 11"
+  },
+  {
+    "created_at": "[ts]",
+    "id": "[id]",
+    "name": "hello 10"
+  },
+  {
+    "created_at": "[ts]",
+    "id": "[id]",
+    "name": "hello 9"
+  },
+  {
+    "created_at": "[ts]",
+    "id": "[id]",
+    "name": "hello 8"
+  },
+  {
+    "created_at": "[ts]",
+    "id": "[id]",
+    "name": "hello 7"
+  },
+  {
+    "created_at": "[ts]",
+    "id": "[id]",
+    "name": "hello 6"
+  },
+  {
+    "created_at": "[ts]",
+    "id": "[id]",
+    "name": "hello 5"
+  }
+]

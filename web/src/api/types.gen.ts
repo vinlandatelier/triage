@@ -4,6 +4,10 @@ export type ClientOptions = {
     baseUrl: 'http://127.0.0.1:7311' | (string & {});
 };
 
+export type CreateHello = {
+    name: string;
+};
+
 export type FieldError = {
     field: string;
     message: string;
@@ -13,6 +17,15 @@ export type Health = {
     status: string;
     uptime_s: number;
     version: string;
+};
+
+export type Hello = {
+    created_at: string;
+    /**
+     * A ULID.
+     */
+    id: string;
+    name: string;
 };
 
 /**
@@ -38,6 +51,86 @@ export type Problem = {
      */
     type: string;
 };
+
+export type HelloListData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/api/hello';
+};
+
+export type HelloListErrors = {
+    /**
+     * An RFC 9457 problem
+     */
+    default: Problem;
+};
+
+export type HelloListError = HelloListErrors[keyof HelloListErrors];
+
+export type HelloListResponses = {
+    /**
+     * The newest hellos
+     */
+    200: Array<Hello>;
+};
+
+export type HelloListResponse = HelloListResponses[keyof HelloListResponses];
+
+export type HelloCreateData = {
+    body: CreateHello;
+    path?: never;
+    query?: never;
+    url: '/api/hello';
+};
+
+export type HelloCreateErrors = {
+    /**
+     * An RFC 9457 problem
+     */
+    default: Problem;
+};
+
+export type HelloCreateError = HelloCreateErrors[keyof HelloCreateErrors];
+
+export type HelloCreateResponses = {
+    /**
+     * The new hello
+     */
+    201: Hello;
+};
+
+export type HelloCreateResponse = HelloCreateResponses[keyof HelloCreateResponses];
+
+export type HelloGetData = {
+    body?: never;
+    path: {
+        /**
+         * The hello's ULID
+         */
+        id: string;
+    };
+    query?: never;
+    url: '/api/hello/{id}';
+};
+
+export type HelloGetErrors = {
+    /**
+     * An RFC 9457 problem
+     */
+    default: Problem;
+};
+
+export type HelloGetError = HelloGetErrors[keyof HelloGetErrors];
+
+export type HelloGetResponses = {
+    /**
+     * The hello
+     */
+    200: Hello;
+};
+
+export type HelloGetResponse = HelloGetResponses[keyof HelloGetResponses];
 
 export type HealthGetData = {
     body?: never;

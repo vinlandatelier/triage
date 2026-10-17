@@ -1,5 +1,6 @@
 mod db;
 mod health;
+mod hello;
 mod helpers;
 mod openapi;
 mod request_tracing;

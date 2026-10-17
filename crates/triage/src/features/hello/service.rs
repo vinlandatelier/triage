@@ -26,6 +26,9 @@ pub async fn create(store: &Store, new: NewHello) -> Result<Hello> {
     let mut tx = store.begin().await?;
     repo::insert(&mut tx, &hello).await?;
     tx.commit().await?;
+    // The JSONL file keeps span fields off its lines and logs no span closes, so this event
+    // is where `hello.id` reaches the file.
+    tracing::debug!(hello.id = %hello.id, "hello created");
     Ok(hello)
 }
 

@@ -1,0 +1,17 @@
+---
+source: crates/triage/tests/api/hello.rs
+expression: body
+---
+{
+  "detail": "the request is invalid",
+  "errors": [
+    {
+      "field": "name",
+      "message": "must not be empty"
+    }
+  ],
+  "instance": "[request id]",
+  "status": 422,
+  "title": "Validation failed",
+  "type": "https://triage.studio/problems/validation"
+}

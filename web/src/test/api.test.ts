@@ -36,6 +36,18 @@ test("a body that is not a problem still rejects with the status", async () => {
   expect(error).toMatchObject({ status: 502 });
 });
 
+test("a 2xx body that is not JSON keeps the parse error", async () => {
+  server.use(
+    mock<HealthGetResponse>(
+      "get",
+      "/health",
+      () => new Response("{not json", { headers: { "content-type": "application/json" } }),
+    ),
+  );
+  const error = await healthGet().catch((e: unknown) => e);
+  expect(error).toBeInstanceOf(SyntaxError);
+});
+
 test("queries throw 5xx to the error boundary and keep 4xx local", () => {
   const throwOnError = createQueryClient().getDefaultOptions().queries?.throwOnError;
   if (typeof throwOnError !== "function") throw new Error("throwOnError is not a predicate");

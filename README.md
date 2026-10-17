@@ -10,7 +10,7 @@ Powered by your Claude Code subscription.
 brew install just && just setup
 ```
 
-`just check` runs every quality gate. `just dev` runs the server and restarts it on change.
+`just check` runs every quality gate. `just dev` serves the app at `http://localhost:7311`: Vite for the UI, with `/api` proxied to the daemon on 7312, both reloading on change.
 
 ## License
 

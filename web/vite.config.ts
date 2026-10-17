@@ -13,6 +13,12 @@ export default defineConfig({
     react(),
     tailwindcss(),
   ],
+  // `just dev` passes --port from TRIAGE_DEV_PORT and runs the daemon on 7312.
+  server: {
+    port: 7311,
+    strictPort: true,
+    proxy: { "/api": "http://127.0.0.1:7312" },
+  },
   resolve: {
     // Reads the `@/*` alias from tsconfig.json, so there is one definition.
     tsconfigPaths: true,

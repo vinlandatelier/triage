@@ -33,6 +33,15 @@ export class ProblemError extends Error implements Problem {
   }
 }
 
+/** A request that got no response: the daemon is down or unreachable. */
+export class NetworkError extends Error {
+  override readonly name = "NetworkError";
+
+  constructor(cause: unknown) {
+    super("Cannot reach the triage daemon. Is `triage serve` running?", { cause });
+  }
+}
+
 function isProblem(body: unknown): body is Problem {
   if (typeof body !== "object" || body === null) return false;
   const fields = body as Record<string, unknown>;

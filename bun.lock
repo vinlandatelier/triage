@@ -9,7 +9,9 @@
       "name": "@triage/api",
       "version": "0.1.0",
       "dependencies": {
+        "@bomb.sh/tab": "0.0.22",
         "citty": "0.2.2",
+        "zod": "4.6.7",
       },
       "devDependencies": {
         "@biomejs/biome": "2.5.15",
@@ -152,6 +154,8 @@
     "@biomejs/cli-win32-arm64": ["@biomejs/cli-win32-arm64@2.5.15", "", { "os": "win32", "cpu": "arm64" }, "sha512-2kPKzhNlm8C+Ru3GcO0Me2ODkCBLrVOUNuyi84RJyWDVKAA4+Kjj3jMjL938lF6BRfvltC4vB2nPY9SvN51Ovg=="],
 
     "@biomejs/cli-win32-x64": ["@biomejs/cli-win32-x64@2.5.15", "", { "os": "win32", "cpu": "x64" }, "sha512-yAzh4UqEImV6Hcy0zjUqNfJAsUhoD64FBQCdTG8Md/Z2wQeVP/ZmJ3XRYAs1g8J9fjTFyl2fCtc5FB5til47+g=="],
+
+    "@bomb.sh/tab": ["@bomb.sh/tab@0.0.22", "", { "peerDependencies": { "cac": "^6.7.14 || ^7.0.0", "citty": "^0.1.6 || ^0.2.0", "commander": "^13.1.0 || ^14.0.0 || ^15.0.0" }, "optionalPeers": ["cac", "citty", "commander"], "bin": { "tab": "dist/bin/cli.mjs" } }, "sha512-l5IuWpV7szqG4MM6A7I+qPMmP2qPMq2TD4veIXaOH0sD53dV0Tv8WZPARp5O5Kp4+y4fnVCl3VL1HZKNghO1yg=="],
 
     "@bramus/specificity": ["@bramus/specificity@2.4.3", "", { "dependencies": { "css-tree": "^3.2.1" }, "bin": { "specificity": "bin/cli.js" } }, "sha512-0GEz8qJWokkUVYQYRukmkSHIFNoBH8QTreeHrAFbvz1XFYc3Y+puhMs8PQ5x8GNugiC2l5jvDBXKLbBIByeSBw=="],
 

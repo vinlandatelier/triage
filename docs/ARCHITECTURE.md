@@ -101,7 +101,7 @@ A rule that names a check (CI, `just`, prek) holds now; the check enforces it on
 api/
   package.json  tsconfig.json  biome.json  prek.toml
   src/
-    main.ts  cli.ts  config.ts  error.ts  telemetry.ts
+    main.ts  cli.ts  config.ts  paths.ts  error.ts  telemetry.ts
     http/  store/
     features/<name>/   model.ts repo.ts service.ts http.ts, plus *.test.ts
 ```
@@ -116,6 +116,12 @@ The Rust rules 2, 3, and 8 hold for `.ts`, and `just check-layout` checks `api/s
 
 `api/biome.json` runs `recommended` plus, at `error`: `noDefaultExport`, `noBarrelFile`, `noReExportAll`, `noEnum`, `noParameterAssign`, `noNonNullAssertion`, `useImportType`, `useNodejsImportProtocol`, `useNamingConvention`, `useFilenamingConvention` (kebab-case), `useAwait`, `noExcessiveCognitiveComplexity` (15), and the `types` domain with `noFloatingPromises` and `noMisusedPromises`. `noNamespaceImport` stays off, because `import * as schema` is Drizzle's idiom. Apart from that one, a rule turns off only by a per-file override that a tool requires. The `api-conventions` skill holds the idioms no tool checks.
 
+`config.ts` parses `TRIAGE_*` once through a zod schema, with the defaults and messages of Config below and three differences. `TRIAGE_LOG_FORMAT` is `columns` or `json`. `TRIAGE_LOG_LEVEL` and `TRIAGE_LOG_FILE_LEVEL` take one level (`trace debug info warn error`, any case) and reject per-module directives; the file default is `debug`, which is what Rust's `info,triage=debug` meant for our own code. Levels print lowercase, so `WARN` shows as `warn`. `TRIAGE_PORT=0` exits 2. Every invalid var is named in one error, and no message echoes a value. Bun reads `.env` when running from source, and also `.env.local` and `.env.$NODE_ENV`, where Rust read only `./.env`; the compiled executable reads none. `secret(value)` returns a `Secret<T>` that prints `[redacted]` through `String`, templates, `JSON.stringify`, and `Bun.inspect`; `expose()` returns the value. Because rule 8 keeps env reads in `config.ts`, `pathEnv()` hands `paths.ts` the `HOME`, `TRIAGE_DATA_DIR`, and `XDG_*` values it needs.
+
+`paths.ts` implements Paths below without `env-paths`, which puts macOS config under `~/Library/Preferences`. `resolvePaths(flag, env)` makes a relative data dir absolute the way Rust's `std::path::absolute` does (drops `.`, keeps `..` and a trailing slash), so `config show` prints the same bytes. `createPaths` is the TypeScript `Paths::create`. `ConfigError` carries the exit code, 2 for configuration and 1 for the filesystem.
+
+`cli.ts` owns the citty tree and dispatch. `--data-dir` is declared on every command for help, and read once from the whole argv, because citty hands a subcommand only the args after its name. `--help`, `--version`, and citty's own usage errors go through `runMain`; commands run through `runCommand`, so a `ConfigError` or `CliError` reaches `main.ts`, which prints `error: <message>` to stderr and sets its exit code. A citty usage error (unknown or missing command) and an empty `--data-dir` exit 2, as clap's did. Unknown flags and extra positionals are still ignored. Command output goes through `emit` (`Bun.write` to `Bun.stdout`), which treats `EPIPE` as success and throws `CliError` (exit 1) on any other write error. `completions <bash|zsh|fish>` prints `@bomb.sh/tab`'s script, captured from its `console.log`; the script calls `triage complete -- <words>` on each tab press, a command `tab()` adds to the tree. The CLI tests spawn `bun src/main.ts` from a temp cwd with only `HOME` set.
+
 `bun test` runs the api tests, because vitest runs on Node and cannot import `bun:sqlite`. `bunfig.toml` sets `install.exact = true` and `install.minimumReleaseAge` to 3 days, so a malicious publish is usually yanked before it can install.
 
 ## Dependency allowlist
@@ -124,7 +130,7 @@ Rust: tokio, axum, tower, tower-http, hyper, serde, serde_json, sqlx, utoipa, ut
 
 Web: react, react-dom, @tanstack/react-query, @tanstack/react-router, @tanstack/router-plugin, @hey-api/openapi-ts, zod, tailwindcss, shadcn and its vendored deps (`@base-ui/react`, `tw-animate-css`), class-variance-authority, clsx, tailwind-merge, lucide-react. Dev: vite, @vitejs/plugin-react, @tailwindcss/vite, typescript, @biomejs/biome, vitest, jsdom, @testing-library/react, @testing-library/dom, @testing-library/user-event, msw, @playwright/test, @julr/vite-plugin-validate-env, knip, react-doctor, ts-reset (`@total-typescript/ts-reset`), @types/react, @types/react-dom.
 
-API: citty. Dev: typescript, @biomejs/biome, knip, @types/bun, license-checker-rseidelsohn.
+API: citty, @bomb.sh/tab, zod. Dev: typescript, @biomejs/biome, knip, @types/bun, license-checker-rseidelsohn.
 
 ## Identifiers
 

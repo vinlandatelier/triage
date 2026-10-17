@@ -12,7 +12,9 @@
     "licenses": "license-checker-rseidelsohn"
   },
   "dependencies": {
-    "citty": "0.2.2"
+    "@bomb.sh/tab": "0.0.22",
+    "citty": "0.2.2",
+    "zod": "4.6.7"
   },
   "devDependencies": {
     "@biomejs/biome": "2.5.15",

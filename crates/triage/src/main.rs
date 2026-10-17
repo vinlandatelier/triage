@@ -8,7 +8,7 @@ fn main() -> ExitCode {
     match cli::run(Cli::parse()) {
         Ok(()) => ExitCode::SUCCESS,
         Err(err) => {
-            // Config errors happen before the tracing subscriber exists.
+            // No tracing subscriber exists yet when config fails.
             let _ = writeln!(std::io::stderr(), "error: {err}");
             ExitCode::from(err.exit_code())
         }

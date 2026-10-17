@@ -101,11 +101,14 @@ a phone in five seconds:
 - **A (rec):** <option>. <why, one short clause>
 - **B:** <option>. <tradeoff, one short clause>
 
-Reply `@abyan-cc A` or `@abyan-cc B`.
+Reply `A` or `B` in this thread.
 ```
 
-Context is one line at most, each option one line, exactly one `(rec)`. Several
-decisions: one comment, numbered blocks. No prose paragraphs.
+Context is one line at most, each option one line, exactly one `(rec)`. No prose
+paragraphs. Post it as an inline review comment on the line it is about, one
+thread per decision, so the maintainer replies in the thread. The assistant
+answers any reply in a thread it started, no mention needed. Top-level only
+when no diff line fits.
 
 ## Review assistant
 

@@ -44,7 +44,7 @@ ulid = "3.0.0"
 url = { version = "2.5.8", features = ["serde"] }
 utoipa = { version = "6.0.0", features = ["macros"] }
 utoipa-axum = "0.3.0"
-utoipa-scalar = { version = "0.4", features = ["axum"] }
+utoipa-scalar = { version = "0.4.0", features = ["axum"] }
 uuid = { version = "1.28.0", default-features = false, features = ["std", "v7"] }
 
 [dev-dependencies]

@@ -9,8 +9,6 @@ rust-version = "1.99.1"
 license = "MIT"
 publish = false
 
-[workspace.dependencies]
-
 [workspace.lints.rust]
 unsafe_code = "forbid"
 missing_debug_implementations = "warn"

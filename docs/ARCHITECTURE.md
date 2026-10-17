@@ -111,7 +111,13 @@ On Linux, an unset XDG var falls back to `~/.local/share`, `~/.local/state`, or 
 
 ## Observability
 
-`tracing` is the instrumentation. Three sinks: stderr columnar for humans, JSONL file for agents, OTLP when `TRIAGE_OTEL_ENDPOINT` is set. Every HTTP request opens a span with `request_id`, `method`, `path`, `status`. A future `agent_run` span carries `session_id`, `model`, `cost_usd`, `num_turns`.
+`tracing` is the instrumentation. Three sinks: stderr columnar for humans, JSONL file for agents, OTLP when `TRIAGE_OTEL_ENDPOINT` is set. `telemetry::init(&Config, &Paths)` installs the subscriber in `cli::run` after `Paths::resolve`, so anything logged during resolution is lost; `config::log_data_dir_override` re-emits the override line afterwards. `cli::run` holds the returned guard until exit; dropping it stops file logging. Completions skip telemetry.
+
+- stderr: filter `TRIAGE_LOG_LEVEL`, format `TRIAGE_LOG_FORMAT` (`columns`, `pretty`, `compact`; `columns` is compact until its formatter lands).
+- JSONL: `<logs>/triage.<YYYY-MM-DD>.jsonl`, daily rotation, 7 files kept, lossless non-blocking writer, filter `TRIAGE_LOG_FILE_LEVEL`. Each line leads with `ts level target message`, then the event fields flattened, then `span` (innermost name), `request_id` (nearest span that has one), `span_id`, `trace_id` (root span id). An event field named like a reserved key is written as `field.<name>`.
+- An unwritable logs dir or an invalid filter logs one warning and continues on stderr or the default filter.
+
+Every HTTP request opens a span with `request_id`, `method`, `path`, `status`. A future `agent_run` span carries `session_id`, `model`, `cost_usd`, `num_turns`.
 
 ## Quality gates
 

@@ -2,7 +2,7 @@
 //!
 //! This is the only module that reads `std::env`.
 
-use std::ffi::OsString;
+use std::ffi::{OsStr, OsString};
 use std::fmt;
 use std::fs::{self, DirBuilder, OpenOptions};
 use std::io;
@@ -81,7 +81,8 @@ pub type Result<T, E = Error> = std::result::Result<T, E>;
 pub enum LogFormat {
     #[default]
     Columns,
-    Json,
+    Pretty,
+    Compact,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
@@ -232,9 +233,8 @@ pub struct Paths {
 impl Paths {
     /// `--data-dir` > `TRIAGE_DATA_DIR` > platform dirs. Creates each dir with mode 0700.
     pub fn resolve(flag: Option<PathBuf>) -> Result<Self> {
-        let env = std::env::var_os(DATA_DIR_VAR).filter(|v| !v.is_empty());
         let home = std::env::var_os("HOME").filter(|v| Path::new(v).is_absolute());
-        let paths = match pick_data_dir(flag, env) {
+        let paths = match pick_data_dir(flag, data_dir_env()) {
             Some(dir) => Self::under(absolute_data_dir(dir)?),
             None => Self::platform(home)?,
         };
@@ -263,11 +263,33 @@ impl Paths {
     }
 
     fn create(&self) -> Result<()> {
-        for dir in [&self.data, &self.config, &self.logs] {
+        for dir in [&self.data, &self.config] {
             create_dir(dir)?;
             check_writable(dir)?;
         }
+        // Telemetry reports an unusable logs dir and falls back to stderr.
+        let _ = create_dir(&self.logs);
         Ok(())
+    }
+}
+
+/// Logs at debug when `--data-dir` wins over `TRIAGE_DATA_DIR`.
+/// Separate from [`Paths::resolve`] because the subscriber needs the resolved logs dir first.
+pub fn log_data_dir_override(flag: Option<&Path>) {
+    log_override(flag, data_dir_env().as_deref());
+}
+
+fn data_dir_env() -> Option<OsString> {
+    std::env::var_os(DATA_DIR_VAR).filter(|v| !v.is_empty())
+}
+
+fn log_override(flag: Option<&Path>, env: Option<&OsStr>) {
+    if let (Some(flag), Some(env)) = (flag, env) {
+        tracing::debug!(
+            flag = %flag.display(),
+            env = %Path::new(env).display(),
+            "--data-dir overrides {DATA_DIR_VAR}"
+        );
     }
 }
 
@@ -284,17 +306,7 @@ fn platform_logs(_home: &Path, dirs: &ProjectDirs) -> PathBuf {
 }
 
 fn pick_data_dir(flag: Option<PathBuf>, env: Option<OsString>) -> Option<PathBuf> {
-    match (flag, env) {
-        (Some(flag), Some(env)) => {
-            tracing::debug!(
-                flag = %flag.display(),
-                env = %Path::new(&env).display(),
-                "--data-dir overrides {DATA_DIR_VAR}"
-            );
-            Some(flag)
-        }
-        (flag, env) => flag.or_else(|| env.map(PathBuf::from)),
-    }
+    flag.or_else(|| env.map(PathBuf::from))
 }
 
 // No shell expands `~` in `.env` or a quoted flag, and a relative dir would
@@ -361,11 +373,11 @@ mod tests {
         Jail::try_with(|jail| {
             jail.clear_env();
             jail.set_env("TRIAGE_PORT", "8000");
-            jail.set_env("TRIAGE_LOG_FORMAT", "json");
+            jail.set_env("TRIAGE_LOG_FORMAT", "pretty");
             jail.set_env("TRIAGE_OTEL_ENDPOINT", "http://localhost:4317");
             let config = Config::from_env().map_err(|e| e.to_string())?;
             assert_eq!(config.port, 8000);
-            assert_eq!(config.log_format, LogFormat::Json);
+            assert_eq!(config.log_format, LogFormat::Pretty);
             assert_eq!(
                 config.otel_endpoint.map(String::from).as_deref(),
                 Some("http://localhost:4317/")
@@ -590,7 +602,7 @@ mod tests {
             .with_writer(move || writer.clone())
             .finish();
         tracing::subscriber::with_default(subscriber, || {
-            pick_data_dir(Some("/flag".into()), Some("/env".into()));
+            log_override(Some(Path::new("/flag")), Some(OsStr::new("/env")));
         });
         let output = String::from_utf8(capture.0.lock().map_err(|_| "poisoned")?.clone())?;
         assert!(output.contains("DEBUG"), "{output}");

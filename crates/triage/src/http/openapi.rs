@@ -31,9 +31,7 @@ pub(super) fn base() -> OpenApi {
                 .version(env!("CARGO_PKG_VERSION"))
                 .build(),
         )
-        .servers(Some([ServerBuilder::new()
-            .url("http://127.0.0.1:7311")
-            .build()]))
+        .servers(Some([ServerBuilder::new().url("/").build()]))
         .components(Some(
             ComponentsBuilder::new()
                 .schema_from::<ProblemSchema>()

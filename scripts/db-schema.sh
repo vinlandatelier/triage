@@ -1,14 +1,20 @@
 #!/usr/bin/env bash
-# Regenerates crates/triage/schema.sql from a freshly migrated database.
+# Regenerates api/schema.sql from a freshly migrated database; with --check, fails with a diff instead.
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
-out=crates/triage/schema.sql
-cargo build --quiet --locked --bin triage
-target="$(cargo metadata --format-version 1 --no-deps | sed -n 's/.*"target_directory":"\([^"]*\)".*/\1/p')"
+out=api/schema.sql
+main="$PWD/api/src/main.ts"
 dir="$(mktemp -d)"
-trap 'rm -rf "$dir" "$out.tmp"' EXIT
-# A debug build reads `.env` from its working dir, and the caller's TRIAGE_* or OTEL_* vars
-# could reach an exporter, so run in the temp dir with only HOME and PATH.
-(cd "$dir" && env -i HOME="$HOME" PATH="$PATH" "$target/debug/triage" --data-dir "$dir" db schema) > "$out.tmp"
-mv "$out.tmp" "$out"
+trap 'rm -rf "$dir"' EXIT
+# Bun reads `.env` from its working dir, and the caller's TRIAGE_* or OTEL_* vars could reach an
+# exporter, so run in the temp dir with only HOME and PATH.
+(cd "$dir" && env -i HOME="$HOME" PATH="$PATH" bun "$main" --data-dir "$dir/data" db schema) > "$dir/schema.sql"
+if [ "${1:-}" = "--check" ]; then
+    if ! diff -u "$out" "$dir/schema.sql"; then
+        echo "$out is stale: run 'just db-schema' (-: committed, +: migrations)" >&2
+        exit 1
+    fi
+else
+    mv "$dir/schema.sql" "$out"
+fi

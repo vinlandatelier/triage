@@ -1,0 +1,1 @@
+CREATE TABLE _migrations (name TEXT PRIMARY KEY, hash TEXT NOT NULL, applied_at TEXT NOT NULL) STRICT;

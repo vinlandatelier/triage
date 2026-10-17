@@ -29,7 +29,8 @@ Fresh clone: `just setup && just check`. CI runs the same recipes.
 | `just openapi` / `openapi-check` | after a route or response type changes |
 | `just gen-api` / `gen-api-check` | after `openapi.json` changes, regenerate `web/src/api/` |
 | `just db-prepare` / `db-prepare-check` | after a query or migration changes, regenerate `.sqlx/` |
-| `just db-schema` / `db-schema-check` | after a migration, regenerate `schema.sql` (run `db-prepare` first) |
+| `just db-generate` | after a `model.ts` change, write `api/migrations/`; then `db-schema` |
+| `just db-schema` / `db-schema-check` | after a migration, regenerate `api/schema.sql` |
 | `just skills-update` | pull upstream changes into vendored skills; never commits |
 | `just loop <feature>` | the maintainer's private feature loop; `.eng/` is gitignored |
 | `just` (`default`) | list recipes |
@@ -63,7 +64,7 @@ Copy `features/hello/` on both sides for a new feature.
 
 - Logs: `triage logs path` prints today's JSONL file (`~/Library/Logs/triage/` on macOS). Every line carries `request_id`.
 - Data: `triage db sql "<query>"` (read-only, `--json` for rows as objects). `triage db schema` prints the live schema.
-- Schema: `crates/triage/schema.sql`. Read it instead of replaying migrations.
+- Schema: `api/schema.sql`. Read it instead of replaying migrations.
 - API: `crates/triage/openapi.json`, or Scalar at `/api/scalar` in a debug build.
 - Config: `triage config show` prints every `TRIAGE_*` var and path.
 - Rules, invariants, and why: `docs/ARCHITECTURE.md`.

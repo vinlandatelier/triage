@@ -71,6 +71,7 @@ jobs:
       - run: just check-api
       - run: just deny
       - run: just check-layout
+      - run: just db-schema-check
 
   web:
     needs: changes

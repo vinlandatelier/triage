@@ -19,7 +19,7 @@ setup:
     @TRIAGE_USER_PATH={{ quote(user_path) }} ./scripts/setup.sh
 
 # Run every quality gate.
-check: check-api deny check-layout check-web gen-api-check
+check: check-api deny check-layout db-schema-check check-web gen-api-check
 
 # Lint, typecheck, and test the api package.
 [working-directory('api')]
@@ -86,13 +86,17 @@ gen-api-check: gen-api
         exit 1
     fi
 
-# Regenerate crates/triage/schema.sql from a freshly migrated database.
+# Generate api/migrations from the feature schemas in api/src/features/*/model.ts, every table STRICT.
+db-generate:
+    scripts/db-generate.sh
+
+# Regenerate api/schema.sql from a freshly migrated database.
 db-schema:
     scripts/db-schema.sh
 
-# Fail when crates/triage/schema.sql no longer matches the migrations.
+# Fail with a diff when api/schema.sql no longer matches the migrations.
 db-schema-check:
-    cargo nextest run --workspace --locked -E 'test(=schema::schema_dump_is_current)'
+    scripts/db-schema.sh --check
 
 # Regenerate crates/triage/.sqlx, the offline query data the sqlx macros compile against.
 db-prepare:

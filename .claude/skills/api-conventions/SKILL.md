@@ -62,6 +62,12 @@ The worked example arrives with `api/src/features/hello/` in a later slice. Unti
 - In-process `app.request()` or `testClient`, a fresh SQLite file per test, real Drizzle, no database mocks. Snapshots stay small, committed, and reviewed. Why: mocking the database tests the mock.
 - `bun test`, not vitest. Why: vitest runs on Node and cannot import `bun:sqlite`.
 
+## Storage
+
+- Write through `store.write((tx) => …)`, never `store.db.transaction` or a bare write. Why: `write` takes the lock with `BEGIN IMMEDIATE`, so `busy_timeout` can wait for it.
+- A new table goes in the feature's `model.ts`; run `just db-generate`, then `just db-schema`. Never edit an applied migration. Why: the migrator refuses a file whose hash changed.
+- Ids come from `newId()`, timestamps from `toDbTime(now())`. Why: ULID text and fixed-width UTC sort by time as text.
+
 ## Logging
 
 - One `const log = logger("<module>")` per module, at module level; call `log.info("message", { fields })`. Never pass a logger as a parameter or import pino. Why: the module logger reads the current span, so every line gets `request_id` without plumbing.

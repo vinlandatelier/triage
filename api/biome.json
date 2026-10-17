@@ -50,5 +50,11 @@
         "useAwait": "error"
       }
     }
-  }
+  },
+  "overrides": [
+    {
+      "includes": ["drizzle.config.ts", "src/sql.d.ts"],
+      "linter": { "rules": { "style": { "noDefaultExport": "off" } } }
+    }
+  ]
 }

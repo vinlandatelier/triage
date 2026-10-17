@@ -39,6 +39,10 @@ export function createPaths(paths: Paths): void {
   }
 }
 
+export function dbFile(paths: Paths): string {
+  return join(paths.data, "triage.db");
+}
+
 function pathsUnder(dir: string): Paths {
   return { data: dir, logs: join(dir, "logs"), config: join(dir, "config") };
 }

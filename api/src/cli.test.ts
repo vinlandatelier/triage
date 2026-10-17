@@ -1,8 +1,16 @@
+import { Database } from "bun:sqlite";
 import { afterEach, expect, test } from "bun:test";
-import { existsSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdtempSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { CliError, configTable, writeOut } from "./cli";
+import { CliError, configTable, rowsTable, schemaDrift, writeOut } from "./cli";
 import { loadConfig } from "./config";
 
 const MAIN = join(import.meta.dir, "main.ts");
@@ -206,4 +214,119 @@ test("a closed stdout is success and any other write error exits 1", async () =>
   const err = await writeOut(failing("ENOSPC"), "x").catch((caught: unknown) => caught);
   expect(err).toBeInstanceOf(CliError);
   expect((err as CliError).exitCode).toBe(1);
+});
+
+function db(dir: string, ...args: string[]): Promise<Run> {
+  return triage(["db", ...args, "--data-dir", dir]);
+}
+
+test("db migrate applies once, then check passes", async () => {
+  const dir = tempDir();
+  const first = await db(dir, "migrate");
+  expect(first.exitCode).toBe(0);
+  expect(first.stdout).toMatch(/^applied \d+ migrations?\n$/);
+  expect((await db(dir, "migrate")).stdout).toBe("applied 0 migrations\n");
+  expect(existsSync(join(dir, "triage.db-wal"))).toBe(false);
+  expect(await db(dir, "check")).toEqual({
+    exitCode: 0,
+    stdout: "schema matches schema.sql\n",
+    stderr: "",
+  });
+});
+
+test("db schema prints schema.sql", async () => {
+  const run = await db(tempDir(), "schema");
+  expect(run.exitCode).toBe(0);
+  expect(run.stdout).toBe(readFileSync(join(import.meta.dir, "../schema.sql"), "utf8"));
+});
+
+test("db check fails on drift", async () => {
+  const dir = tempDir();
+  await db(dir, "migrate");
+  const client = new Database(join(dir, "triage.db"));
+  client.run("CREATE TABLE stray (x INTEGER)");
+  client.close();
+  const run = await db(dir, "check");
+  expect(run.exitCode).toBe(1);
+  expect(run.stdout).toContain("schema drift at line");
+});
+
+test.each([[["check"]], [["sql", "SELECT 1"]]])(
+  "db %p needs an existing database and creates none",
+  async (args) => {
+    const dir = tempDir();
+    const run = await db(dir, ...args);
+    expect(run.exitCode).toBe(1);
+    expect(run.stderr).toContain("run `triage db migrate`");
+    expect(existsSync(join(dir, "triage.db"))).toBe(false);
+  },
+);
+
+test("db sql rejects writes", async () => {
+  const dir = tempDir();
+  await db(dir, "migrate");
+  const run = await db(dir, "sql", "WITH x AS (SELECT 1) DELETE FROM _migrations");
+  expect(run.exitCode).toBe(1);
+  expect(run.stderr).toContain("readonly database");
+});
+
+test("db sql rejects more than one statement before running it", async () => {
+  const dir = tempDir();
+  await db(dir, "migrate");
+  const run = await db(dir, "sql", "SELECT 1 AS a, 2 AS b; SELECT 3");
+  expect(run).toEqual({
+    exitCode: 1,
+    stdout: "",
+    stderr: "error: pass exactly one statement\n",
+  });
+});
+
+test("db sql prints a table or json", async () => {
+  const dir = tempDir();
+  await db(dir, "migrate");
+  const query = "SELECT 1 AS n, 'x' AS t";
+  expect((await db(dir, "sql", query)).stdout).toBe("n  t\n-  -\n1  x\n");
+  expect((await db(dir, "sql", "--json", query)).stdout).toBe(
+    '[\n  {\n    "n": 1,\n    "t": "x"\n  }\n]\n',
+  );
+  expect((await db(dir, "sql", "-- no rows\nSELECT 1 AS n WHERE 0")).stdout).toBe("n\n-\n");
+  expect(
+    (await triage(["db", "sql", "--json", "--data-dir", dir, "-- c\nSELECT 2 AS n"])).stdout,
+  ).toBe('[\n  {\n    "n": 2\n  }\n]\n');
+  expect((await db(dir, "sql", "SELECT x'00ff', 9007199254740993")).stdout).toBe(
+    "x'00ff'  9007199254740993\n-------  ----------------\nx'00ff'  9007199254740993\n",
+  );
+});
+
+test("rowsTable pads columns and marks nulls and newlines", () => {
+  expect(
+    rowsTable({
+      columns: ["id", "no\nte"],
+      rows: [
+        [1n, "a\nb\r\nc"],
+        [200n, null],
+        [3n, "\t\u001b[31m"],
+        [4n, "é"],
+      ],
+    }),
+  ).toBe(`id   no⏎te
+---  ------------
+1    a⏎b⏎c
+200  NULL
+3    \\x09\\x1b[31m
+4    é
+`);
+});
+
+test("schemaDrift names the first differing line", () => {
+  expect(schemaDrift("a\nb\n", "a\nb\n")).toBeUndefined();
+  expect(schemaDrift("a\nb\n", "a\nc\nd\n")).toBe(
+    "schema drift at line 2\n  schema.sql  b\n  database    c\n",
+  );
+  expect(schemaDrift("a\n", "a\nb\n")).toBe(
+    "schema drift at line 2\n  schema.sql  (end)\n  database    b\n",
+  );
+  expect(schemaDrift("a\n", "a\n\nb\n")).toBe(
+    "schema drift at line 2\n  schema.sql  (end)\n  database    (blank line)\n",
+  );
 });

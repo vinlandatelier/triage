@@ -3,8 +3,12 @@ import tab from "@bomb.sh/tab/citty";
 import { type ArgsDef, defineCommand, parseArgs, renderUsage, runCommand, runMain } from "citty";
 import packageJson from "../package.json" with { type: "json" };
 import { type Config, configEntries, loadConfig, pathEnv } from "./config";
-import { createPaths, type Paths, resolvePaths } from "./paths";
+import { createPaths, dbFile, type Paths, resolvePaths } from "./paths";
+import { openReadOnly, openStore } from "./store/open";
+import { cellText, type Rows, rowsJson, runQuery } from "./store/query";
+import { dumpSchema, SCHEMA } from "./store/schema";
 import { initTelemetry, logger, type Telemetry } from "./telemetry";
+import { oneLine } from "./telemetry/columns";
 import { logFile } from "./telemetry/daily-file";
 
 /** A command failure with its exit code. */
@@ -33,7 +37,8 @@ const globalArgs = {
   },
 } satisfies ArgsDef;
 
-export async function run(rawArgs: string[]): Promise<void> {
+export async function run(argv: string[]): Promise<void> {
+  const rawArgs = hyphenQuery(argv);
   const dataDir = parseArgs(rawArgs, globalArgs)["data-dir"];
   // An empty dir would resolve to the cwd and scatter data wherever the command ran.
   if (dataDir === "") {
@@ -63,6 +68,28 @@ export async function run(rawArgs: string[]): Promise<void> {
       },
     });
   }
+}
+
+const SQL_FLAGS = new Set(["--json", "--help", "-h"]);
+
+// clap's `allow_hyphen_values` on `db sql <QUERY>`: a query that starts with `-`, such as a
+// leading `--` comment, is the query, not a flag. citty reads everything after `--` as positional.
+function hyphenQuery(argv: readonly string[]): string[] {
+  const sql = argv.indexOf("sql");
+  if (sql < 1 || !argv.slice(0, sql).includes("db") || argv.includes("--")) {
+    return [...argv];
+  }
+  for (let i = sql + 1; i < argv.length; i++) {
+    const arg = argv[i] ?? "";
+    if (arg === "--data-dir") {
+      i++;
+    } else if (!(arg.startsWith("--data-dir=") || SQL_FLAGS.has(arg))) {
+      return arg.startsWith("-")
+        ? [...argv.slice(0, i), ...argv.slice(i + 1), "--", arg]
+        : [...argv];
+    }
+  }
+  return [...argv];
 }
 
 async function rootCommand(dataDir: string | undefined) {
@@ -113,6 +140,96 @@ async function rootCommand(dataDir: string | undefined) {
           }),
         },
       }),
+      db: defineCommand({
+        meta: { name: "db", description: "Inspect and migrate the database" },
+        args: globalArgs,
+        subCommands: {
+          schema: defineCommand({
+            meta: {
+              name: "schema",
+              description:
+                "Migrate the database, then print its schema as ordered `CREATE` statements",
+            },
+            args: globalArgs,
+            async run() {
+              await withPaths(dataDir, async (paths) => {
+                const { store } = openStore(dbFile(paths));
+                let schema: string;
+                try {
+                  schema = dumpSchema(store.db.$client);
+                } finally {
+                  store.close();
+                }
+                await emit(schema);
+              });
+            },
+          }),
+          migrate: defineCommand({
+            meta: {
+              name: "migrate",
+              description: "Apply pending migrations and print how many ran",
+            },
+            args: globalArgs,
+            async run() {
+              await withPaths(dataDir, async (paths) => {
+                const { store, applied } = openStore(dbFile(paths));
+                store.close();
+                await emit(`applied ${applied} migration${applied === 1 ? "" : "s"}\n`);
+              });
+            },
+          }),
+          check: defineCommand({
+            meta: {
+              name: "check",
+              description:
+                "Compare the database schema to the `schema.sql` this build ships; exits 1 on drift",
+            },
+            args: globalArgs,
+            async run() {
+              await withPaths(dataDir, async (paths) => {
+                const client = openReadOnly(dbFile(paths));
+                let live: string;
+                try {
+                  live = dumpSchema(client);
+                } finally {
+                  client.close();
+                }
+                const drift = schemaDrift(SCHEMA, live);
+                await emit(drift ?? "schema matches schema.sql\n");
+                if (drift !== undefined) {
+                  process.exitCode = 1;
+                }
+              });
+            },
+          }),
+          sql: defineCommand({
+            meta: {
+              name: "sql",
+              description: "Run one query on a read-only connection and print the rows",
+            },
+            args: {
+              ...globalArgs,
+              query: { type: "positional", required: true, description: "The SQL statement" },
+              json: {
+                type: "boolean",
+                description: "Print a JSON array of row objects instead of a table",
+              },
+            },
+            async run({ args }) {
+              await withPaths(dataDir, async (paths) => {
+                const client = openReadOnly(dbFile(paths));
+                let rows: Rows;
+                try {
+                  rows = runQuery(client, args.query);
+                } finally {
+                  client.close();
+                }
+                await emit(args.json === true ? rowsJson(rows) : rowsTable(rows));
+              });
+            },
+          }),
+        },
+      }),
       completions: defineCommand({
         meta: { name: "completions", description: "Print a shell completion script to stdout" },
         args: {
@@ -147,6 +264,19 @@ async function start(
   return { config, paths, telemetry };
 }
 
+/** Runs `fn` with dirs and telemetry set up, and closes telemetry after it. */
+async function withPaths(
+  dataDir: string | undefined,
+  fn: (paths: Paths) => Promise<void>,
+): Promise<void> {
+  const { paths, telemetry } = await start(dataDir);
+  try {
+    await fn(paths);
+  } finally {
+    await telemetry.close();
+  }
+}
+
 export function configTable(config: Config, paths: Paths): string {
   const rows = [
     ...configEntries(config),
@@ -156,6 +286,64 @@ export function configTable(config: Config, paths: Paths): string {
   ];
   const width = Math.max(...rows.map(([key = ""]) => key.length));
   return rows.map(([key = "", value]) => `${key.padEnd(width)}  ${value}\n`).join("");
+}
+
+/** An aligned table with `NULL` for SQL null, names and cells escaped like the columns log format. */
+export function rowsTable(rows: Rows): string {
+  if (rows.columns.length === 0) {
+    return "";
+  }
+  const header = rows.columns.map(oneLine);
+  const body = rows.rows.map((row) =>
+    row.map((value) => {
+      if (value === null) {
+        return "NULL";
+      }
+      return typeof value === "string" ? oneLine(value) : cellText(value);
+    }),
+  );
+  const width = (text: string) => [...text].length;
+  const widths = header.map((name, i) =>
+    Math.max(width(name), ...body.map((line) => width(line[i] ?? ""))),
+  );
+  const rule = widths.map((w) => "-".repeat(w));
+  return [header, rule, ...body]
+    .map((line) => {
+      const padded = line.map((text, i) => text + " ".repeat((widths[i] ?? 0) - width(text)));
+      return `${padded.join("  ").trimEnd()}\n`;
+    })
+    .join("");
+}
+
+/** The first line where `live` differs from `want`, or `undefined` when they match. */
+export function schemaDrift(want: string, live: string): string | undefined {
+  const wantLines = lines(want);
+  const liveLines = lines(live);
+  const count = Math.max(wantLines.length, liveLines.length);
+  for (let i = 0; i < count; i++) {
+    const a = wantLines[i];
+    const b = liveLines[i];
+    if (a !== b) {
+      return `schema drift at line ${i + 1}\n  schema.sql  ${shown(a)}\n  database    ${shown(b)}\n`;
+    }
+  }
+  return undefined;
+}
+
+// Rust's `str::lines`: a final newline ends the last line instead of starting an empty one.
+function lines(text: string): string[] {
+  const parts = text.split("\n").map((line) => line.replace(/\r$/, ""));
+  if (parts.at(-1) === "") {
+    parts.pop();
+  }
+  return parts;
+}
+
+function shown(line: string | undefined): string {
+  if (line === undefined) {
+    return "(end)";
+  }
+  return line === "" ? "(blank line)" : line;
 }
 
 function parseShell(shell: string): Shell {

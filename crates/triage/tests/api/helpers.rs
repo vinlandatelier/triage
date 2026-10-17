@@ -93,7 +93,6 @@ pub fn wait_for_line(
 pub struct TestApp {
     pub server: TestServer,
     pub store: Store,
-    /// Dropping it deletes the database, so it lives as long as the app.
     #[allow(dead_code, reason = "held so the database outlives the store")]
     pub dir: TempDir,
 }

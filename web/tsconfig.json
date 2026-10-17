@@ -16,6 +16,9 @@
     "verbatimModuleSyntax": true,
     "noFallthroughCasesInSwitch": true,
     "noImplicitOverride": true,
+    "noImplicitReturns": true,
+    "allowUnreachableCode": false,
+    "allowUnusedLabels": false,
     "paths": {
       "@/*": ["./src/*"]
     }

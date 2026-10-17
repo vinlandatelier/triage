@@ -1,10 +1,11 @@
 name: stack comments
 
-# Any open, close, merge, retarget, or restack can change several stacks at once, so every run
-# rewrites the stack comment on every open PR. Unchanged comments are left alone.
+# Any open, close, merge, or retarget can change several stacks at once, so every run
+# rewrites the stack comment on every open PR. Unchanged comments are left alone. Pushes,
+# restacks included, never change which PR sits on which, so they do not trigger it.
 on:
   pull_request_target:
-    types: [opened, reopened, closed, edited, synchronize]
+    types: [opened, reopened, closed, edited]
   workflow_dispatch:
 
 concurrency:

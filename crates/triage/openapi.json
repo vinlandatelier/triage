@@ -13,6 +13,17 @@
       }
     },
     "schemas": {
+      "CreateHello": {
+        "properties": {
+          "name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "type": "object"
+      },
       "FieldError": {
         "properties": {
           "field": {
@@ -46,6 +57,27 @@
           "status",
           "version",
           "uptime_s"
+        ],
+        "type": "object"
+      },
+      "Hello": {
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "id": {
+            "description": "A ULID.",
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "created_at"
         ],
         "type": "object"
       },
@@ -98,6 +130,102 @@
   },
   "openapi": "3.1.0",
   "paths": {
+    "/api/hello": {
+      "get": {
+        "description": "The 20 newest, newest first.",
+        "operationId": "hello_list",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/Hello"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "The newest hellos"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "summary": "List hellos",
+        "tags": [
+          "hello"
+        ]
+      },
+      "post": {
+        "description": "Trims the name, which must then be 1 to 80 characters.",
+        "operationId": "hello_create",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateHello"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Hello"
+                }
+              }
+            },
+            "description": "The new hello"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "summary": "Create a hello",
+        "tags": [
+          "hello"
+        ]
+      }
+    },
+    "/api/hello/{id}": {
+      "get": {
+        "operationId": "hello_get",
+        "parameters": [
+          {
+            "description": "The hello's ULID",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Hello"
+                }
+              }
+            },
+            "description": "The hello"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "summary": "Get a hello",
+        "tags": [
+          "hello"
+        ]
+      }
+    },
     "/health": {
       "get": {
         "description": "The version and uptime of the running daemon; `triage status` reads it.",

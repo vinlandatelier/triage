@@ -1,0 +1,11 @@
+---
+source: crates/triage/tests/api/hello.rs
+expression: body
+---
+{
+  "detail": "no hello 01JUNK",
+  "instance": "[request id]",
+  "status": 404,
+  "title": "Not found",
+  "type": "https://triage.studio/problems/not-found"
+}

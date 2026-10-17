@@ -2,7 +2,7 @@
 
 import type { Client, ClientMeta, Options as Options2, RequestResult, TDataShape } from './client';
 import { client } from './client.gen';
-import type { HealthGetData, HealthGetErrors, HealthGetResponses } from './types.gen';
+import type { HealthGetData, HealthGetErrors, HealthGetResponses, HelloCreateData, HelloCreateErrors, HelloCreateResponses, HelloGetData, HelloGetErrors, HelloGetResponses, HelloListData, HelloListErrors, HelloListResponses } from './types.gen';
 
 export type Options<TData extends TDataShape = TDataShape, ThrowOnError extends boolean = boolean, TResponse = unknown> = Options2<TData, ThrowOnError, TResponse> & {
     /**
@@ -17,6 +17,32 @@ export type Options<TData extends TDataShape = TDataShape, ThrowOnError extends 
      */
     meta?: keyof ClientMeta extends never ? Record<string, unknown> : ClientMeta;
 };
+
+/**
+ * List hellos
+ *
+ * The 20 newest, newest first.
+ */
+export const helloList = <ThrowOnError extends boolean = true>(options?: Options<HelloListData, ThrowOnError>): RequestResult<HelloListResponses, HelloListErrors, ThrowOnError> => (options?.client ?? client).get<HelloListResponses, HelloListErrors, ThrowOnError>({ url: '/api/hello', ...options });
+
+/**
+ * Create a hello
+ *
+ * Trims the name, which must then be 1 to 80 characters.
+ */
+export const helloCreate = <ThrowOnError extends boolean = true>(options: Options<HelloCreateData, ThrowOnError>): RequestResult<HelloCreateResponses, HelloCreateErrors, ThrowOnError> => (options.client ?? client).post<HelloCreateResponses, HelloCreateErrors, ThrowOnError>({
+    url: '/api/hello',
+    ...options,
+    headers: {
+        'Content-Type': 'application/json',
+        ...options.headers
+    }
+});
+
+/**
+ * Get a hello
+ */
+export const helloGet = <ThrowOnError extends boolean = true>(options: Options<HelloGetData, ThrowOnError>): RequestResult<HelloGetResponses, HelloGetErrors, ThrowOnError> => (options.client ?? client).get<HelloGetResponses, HelloGetErrors, ThrowOnError>({ url: '/api/hello/{id}', ...options });
 
 /**
  * Daemon health

@@ -1,0 +1,9 @@
+---
+source: crates/triage/tests/api/hello.rs
+expression: body
+---
+{
+  "created_at": "[ts]",
+  "id": "[id]",
+  "name": "world"
+}

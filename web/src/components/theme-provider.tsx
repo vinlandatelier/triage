@@ -1,54 +1,38 @@
-import { createContext, useContext, useEffect, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 
 export type Theme = "dark" | "light" | "system";
 
-// index.html reads the same key before paint; change both together.
-export const THEME_STORAGE_KEY = "triage-theme";
-
-type ThemeProviderProps = {
-  children: React.ReactNode;
-  defaultTheme?: Theme;
-  storageKey?: string;
-};
+// index.html reads the same key and falls back to the OS before paint; change both together.
+const THEME_STORAGE_KEY = "triage-theme";
 
 type ThemeProviderState = {
   theme: Theme;
   setTheme: (theme: Theme) => void;
 };
 
-const initialState: ThemeProviderState = {
-  theme: "system",
-  setTheme: () => null,
-};
-
-const ThemeProviderContext = createContext<ThemeProviderState>(initialState);
+const ThemeProviderContext = createContext<ThemeProviderState | undefined>(undefined);
 
 const isTheme = (value: unknown): value is Theme =>
   value === "dark" || value === "light" || value === "system";
 
 // Storage throws when disabled (Safari private mode, blocked cookies); the theme then lasts one page load.
-function readTheme(key: string): Theme | undefined {
+function readTheme(): Theme | undefined {
   try {
-    const stored = localStorage.getItem(key);
+    const stored = localStorage.getItem(THEME_STORAGE_KEY);
     return isTheme(stored) ? stored : undefined;
   } catch {
     return undefined;
   }
 }
 
-function writeTheme(key: string, theme: Theme) {
+function writeTheme(theme: Theme) {
   try {
-    localStorage.setItem(key, theme);
+    localStorage.setItem(THEME_STORAGE_KEY, theme);
   } catch {}
 }
 
-export function ThemeProvider({
-  children,
-  defaultTheme = "system",
-  storageKey = THEME_STORAGE_KEY,
-  ...props
-}: ThemeProviderProps) {
-  const [theme, setTheme] = useState<Theme>(() => readTheme(storageKey) ?? defaultTheme);
+export function ThemeProvider({ children }: { children: React.ReactNode }) {
+  const [theme, setThemeState] = useState<Theme>(() => readTheme() ?? "system");
 
   useEffect(() => {
     const root = window.document.documentElement;
@@ -64,19 +48,13 @@ export function ThemeProvider({
     return () => media.removeEventListener("change", apply);
   }, [theme]);
 
-  const value = {
-    theme,
-    setTheme: (theme: Theme) => {
-      writeTheme(storageKey, theme);
-      setTheme(theme);
-    },
-  };
+  const setTheme = useCallback((next: Theme) => {
+    writeTheme(next);
+    setThemeState(next);
+  }, []);
+  const value = useMemo(() => ({ theme, setTheme }), [theme, setTheme]);
 
-  return (
-    <ThemeProviderContext.Provider {...props} value={value}>
-      {children}
-    </ThemeProviderContext.Provider>
-  );
+  return <ThemeProviderContext.Provider value={value}>{children}</ThemeProviderContext.Provider>;
 }
 
 export const useTheme = () => {

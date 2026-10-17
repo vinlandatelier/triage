@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Triage</title>
-    <!-- Sets .dark before first paint so a stored dark theme never flashes light. Key matches THEME_STORAGE_KEY. -->
+    <!-- Runs before first paint so a stored dark theme never flashes light. Mirrors theme-provider.tsx. -->
     <script>
       {
         let theme = null;

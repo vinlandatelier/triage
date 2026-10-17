@@ -2,8 +2,8 @@ import "./index.css";
 import { createRouter, RouterProvider } from "@tanstack/react-router";
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
-import { ThemeProvider } from "./components/theme-provider";
-import { NotFound, RouteError } from "./fallbacks";
+import { ThemeProvider } from "@/components/theme-provider";
+import { NotFound, RouteError } from "@/fallbacks";
 import { routeTree } from "./routeTree.gen";
 
 // Without defaults, a child route error or notFound() bubbles to the root boundary and replaces the header.

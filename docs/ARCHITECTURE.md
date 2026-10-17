@@ -112,7 +112,7 @@ Binary, crate, workspace: `triage`. Env prefix: `TRIAGE_`. `ProjectDirs::from("s
 
 On Linux, an unset XDG var falls back to `~/.local/share`, `~/.local/state`, or `~/.config`.
 
-`--data-dir <path>` or `TRIAGE_DATA_DIR` puts everything under one directory: data at its root, then `logs/` and `config/`. The flag wins over the env var and logs a debug line when it does. Tests always use it. A relative data dir is made absolute and a leading `~` exits 2. `Paths::resolve` creates missing dirs with mode 0700 and exits 1 when the data or config dir is not writable or there is no absolute `HOME`. An unusable logs dir does not fail resolution; telemetry reports it (see Observability).
+`--data-dir <path>` or `TRIAGE_DATA_DIR` puts everything under one directory: data at its root, then `logs/` and `config/`. The flag wins over the env var and logs a debug line when it does. Tests always use it. A relative data dir is made absolute and a leading `~` exits 2. `Paths::resolve` creates missing dirs with mode 0700, tightens an existing one the current user owns to 0700, and exits 1 when the data or config dir is not writable or there is no absolute `HOME`. An unusable logs dir does not fail resolution; telemetry reports it (see Observability).
 
 ## Config
 

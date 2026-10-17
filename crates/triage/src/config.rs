@@ -389,13 +389,35 @@ fn check_writable(dir: &Path) -> Result<()> {
     })
 }
 
+/// Also tightens `dir` to 0700 when the current user owns it.
 pub(crate) fn probe_writable(dir: &Path) -> io::Result<()> {
     let probe = dir.join(format!(".triage-write-check-{}", std::process::id()));
-    OpenOptions::new()
+    let file = OpenOptions::new()
         .write(true)
         .create_new(true)
-        .open(&probe)
-        .and_then(|_| fs::remove_file(&probe))
+        .open(&probe)?;
+    #[cfg(unix)]
+    let owner = file.metadata();
+    fs::remove_file(&probe)?;
+    #[cfg(unix)]
+    if let Ok(owner) = owner {
+        restrict(dir, std::os::unix::fs::MetadataExt::uid(&owner));
+    }
+    Ok(())
+}
+
+// `create_dir` leaves an existing dir's mode alone, so one made by hand or an older build may
+// still be 0755. The probe file's owner is the effective uid, without a libc dependency.
+#[cfg(unix)]
+fn restrict(dir: &Path, uid: u32) {
+    use std::os::unix::fs::{MetadataExt, PermissionsExt};
+
+    if let Ok(meta) = fs::metadata(dir)
+        && meta.uid() == uid
+        && meta.mode() & 0o077 != 0
+    {
+        let _ = fs::set_permissions(dir, fs::Permissions::from_mode(0o700));
+    }
 }
 
 #[cfg(test)]
@@ -658,6 +680,24 @@ mod tests {
                 fs::metadata(&paths.logs)?.permissions().mode() & 0o777,
                 0o700
             );
+        }
+        Ok(())
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn existing_open_dirs_are_tightened_to_0700() -> TestResult {
+        use std::os::unix::fs::PermissionsExt;
+
+        let tmp = tempfile::tempdir()?;
+        let paths = Paths::under(tmp.path().join("t"));
+        for dir in [&paths.data, &paths.config] {
+            fs::create_dir_all(dir)?;
+            fs::set_permissions(dir, fs::Permissions::from_mode(0o755))?;
+        }
+        paths.create()?;
+        for dir in [&paths.data, &paths.config] {
+            assert_eq!(fs::metadata(dir)?.permissions().mode() & 0o777, 0o700);
         }
         Ok(())
     }

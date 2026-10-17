@@ -89,9 +89,9 @@ fn config_table(config: &Config, paths: &Paths) -> String {
     } = paths;
     let mut rows = config.entries();
     rows.extend([
-        ("data".to_owned(), data.display().to_string()),
-        ("logs".to_owned(), logs.display().to_string()),
-        ("config".to_owned(), config_dir.display().to_string()),
+        ("data_dir".to_owned(), data.display().to_string()),
+        ("logs_dir".to_owned(), logs.display().to_string()),
+        ("config_dir".to_owned(), config_dir.display().to_string()),
     ]);
     let width = rows.iter().map(|(key, _)| key.len()).max().unwrap_or(0);
     rows.iter().fold(String::new(), |mut table, (key, value)| {
@@ -131,9 +131,9 @@ TRIAGE_LOG_LEVEL       \"info\"
 TRIAGE_LOG_FILE_LEVEL  \"info,triage=debug\"
 TRIAGE_LOG_FORMAT      Columns
 TRIAGE_OTEL_ENDPOINT   None
-data                   /d
-logs                   /d/logs
-config                 /d/config
+data_dir               /d
+logs_dir               /d/logs
+config_dir             /d/config
 "
         );
     }

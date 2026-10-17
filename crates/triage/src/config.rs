@@ -154,8 +154,8 @@ impl Config {
             log_format,
             otel_endpoint,
         } = self;
-        // `Url`'s `Debug` dumps every component; the string form is what the user set.
-        let otel_endpoint = otel_endpoint.as_ref().map(Url::as_str);
+        // `Url`'s `Debug` dumps every component, and its string form keeps userinfo credentials.
+        let otel_endpoint = otel_endpoint.as_ref().map(redact_userinfo);
         let fields: [(&str, &dyn fmt::Debug); 5] = [
             ("port", port),
             ("log_level", log_level),
@@ -173,6 +173,18 @@ impl Config {
             })
             .collect()
     }
+}
+
+fn redact_userinfo(url: &Url) -> String {
+    let mut url = url.clone();
+    // Both setters only fail on URLs that cannot have userinfo, which also have none to hide.
+    if !url.username().is_empty() {
+        let _ = url.set_username("redacted");
+    }
+    if url.password().is_some() {
+        let _ = url.set_password(Some("redacted"));
+    }
+    url.into()
 }
 
 /// Serde stops at the first missing field, so this names every absent var at once.
@@ -495,6 +507,24 @@ mod tests {
                 ("TRIAGE_OTEL_ENDPOINT", "Some(\"http://localhost:4317/\")"),
             ]
             .map(|(k, v)| (k.to_owned(), v.to_owned()))
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn entries_redact_endpoint_credentials() -> TestResult {
+        let config = Config {
+            otel_endpoint: Some(Url::parse("http://user:hunter2@host:4317/v1?x=1")?),
+            ..Config::default()
+        };
+        let entries = config.entries();
+        let endpoint = entries
+            .iter()
+            .find(|(key, _)| key == OTEL_ENDPOINT_VAR)
+            .map(|(_, value)| value.as_str());
+        assert_eq!(
+            endpoint,
+            Some("Some(\"http://redacted:redacted@host:4317/v1?x=1\")")
         );
         Ok(())
     }

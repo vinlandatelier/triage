@@ -194,7 +194,7 @@ impl fmt::Debug for Config {
     }
 }
 
-fn redact_userinfo(url: &Url) -> String {
+pub(crate) fn redact_userinfo(url: &Url) -> String {
     let mut url = url.clone();
     // Both setters only fail on URLs that cannot have userinfo, which also have none to hide.
     if !url.username().is_empty() {
@@ -210,8 +210,7 @@ fn otel_standard_endpoint(value: Option<String>) -> Result<Option<Url>> {
     value
         .filter(|v| !v.is_empty())
         .map(|v| {
-            let url = Url::parse(&v)
-                .map_err(|err| Error::Invalid(vec![format!("{OTEL_STANDARD_VAR}: {err}")]))?;
+            let url = Url::parse(&v).map_err(|_| otel_endpoint_error(OTEL_STANDARD_VAR))?;
             check_otel_endpoint(OTEL_STANDARD_VAR, &url)?;
             Ok(url)
         })
@@ -223,10 +222,12 @@ fn check_otel_endpoint(var: &str, url: &Url) -> Result<()> {
     if matches!(url.scheme(), "http" | "https") && url.has_host() {
         Ok(())
     } else {
-        Err(Error::Invalid(vec![format!(
-            "{var}: expected an http(s) URL with a host"
-        )]))
+        Err(otel_endpoint_error(var))
     }
+}
+
+fn otel_endpoint_error(var: &str) -> Error {
+    Error::Invalid(vec![format!("{var}: expected an http(s) URL with a host")])
 }
 
 /// Serde stops at the first missing field, so this names every absent var at once.

@@ -17,7 +17,14 @@ use tracing_subscriber::Layer;
 use tracing_subscriber::registry::LookupSpan;
 use url::Url;
 
+use crate::config::redact_userinfo;
+
 const SERVICE_NAME: &str = "triage";
+// Also the retry deadline. Under the shutdown budget so a blackholed collector still fails, and
+// warns, before the guard gives up on the final flush.
+const EXPORT_TIMEOUT: Duration = Duration::from_secs(2);
+const SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(5);
+const _: () = assert!(EXPORT_TIMEOUT.as_secs() < SHUTDOWN_TIMEOUT.as_secs());
 
 /// Flushes and stops the batch exporter on drop.
 #[derive(Debug)]
@@ -28,7 +35,7 @@ pub struct Otel {
 impl Drop for Otel {
     fn drop(&mut self) {
         // An unreachable collector already warned from `WarnOnce`; nothing useful to add here.
-        let _ = self.provider.shutdown();
+        let _ = self.provider.shutdown_with_timeout(SHUTDOWN_TIMEOUT);
     }
 }
 
@@ -45,7 +52,8 @@ where
         Ok(exporter) => exporter,
         Err(err) => {
             warnings.push(format!(
-                "cannot build OTLP exporter for {endpoint}: {err}; traces stay local"
+                "cannot build OTLP exporter for {}: {err}; traces stay local",
+                redact_userinfo(endpoint)
             ));
             return None;
         }
@@ -64,7 +72,7 @@ fn exporter(endpoint: &Url) -> Result<opentelemetry_otlp::SpanExporter, String> 
     opentelemetry_otlp::SpanExporter::builder()
         .with_http()
         .with_endpoint(traces_url(endpoint).map_err(|e| e.to_string())?)
-        .with_timeout(Duration::from_secs(5))
+        .with_timeout(EXPORT_TIMEOUT)
         .build()
         .map_err(|e| e.to_string())
 }
@@ -98,7 +106,7 @@ impl<E> WarnOnce<E> {
     fn new(inner: E, endpoint: &Url) -> Self {
         Self {
             inner,
-            endpoint: endpoint.to_string(),
+            endpoint: redact_userinfo(endpoint),
             warned: AtomicBool::new(false),
         }
     }
@@ -178,7 +186,7 @@ mod tests {
     }
 
     #[test]
-    fn endpoint_builds_layer_without_connecting() -> TestResult {
+    fn endpoint_builds_layer() -> TestResult {
         let mut warnings = Vec::new();
         let url = Url::parse("http://127.0.0.1:1")?;
         assert!(layer::<Registry>(Some(&url), &mut warnings).is_some());
@@ -201,7 +209,7 @@ mod tests {
     #[test]
     fn closed_port_warns_once() -> TestResult {
         let port = TcpListener::bind("127.0.0.1:0")?.local_addr()?.port();
-        let url = Url::parse(&format!("http://127.0.0.1:{port}"))?;
+        let url = Url::parse(&format!("http://user:hunter2@127.0.0.1:{port}"))?;
         let capture = Capture::default();
         let writer = capture.clone();
         let subscriber = tracing_subscriber::fmt()
@@ -222,6 +230,7 @@ mod tests {
         let out = String::from_utf8(capture.0.lock().map_err(|_| "poisoned")?.clone())?;
         assert_eq!(out.matches("cannot export traces").count(), 1, "{out}");
         assert!(out.contains(&port.to_string()), "{out}");
+        assert!(!out.contains("hunter2"), "{out}");
         Ok(())
     }
 }

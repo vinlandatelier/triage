@@ -103,6 +103,8 @@ Copy `features/hello/` on both sides for a new feature.
 - PR body: `Closes #N`, then `## what` (bullets), `## verify` (numbered steps),
   and `## why` / `## notes` only when needed. Bullets over paragraphs.
 - Comments explain non-obvious why only. No restating code, no banners.
+- A `just` recipe longer than about 5 lines moves to `scripts/<recipe>.sh`; the
+  recipe calls it.
 - Documentation names no individual people. Use "the maintainer" or "the user".
 - When a question needs a person, mention whoever has the most context: the PR
   or issue author, a reviewer, the author of the conflicting change. Mention

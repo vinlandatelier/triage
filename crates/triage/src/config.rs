@@ -20,6 +20,7 @@ pub const REQUIRED: &[&str] = &[];
 
 const ENV_PREFIX: &str = "TRIAGE_";
 const DATA_DIR_VAR: &str = "TRIAGE_DATA_DIR";
+const OTEL_ENDPOINT_VAR: &str = "TRIAGE_OTEL_ENDPOINT";
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
@@ -31,6 +32,8 @@ pub enum Error {
     Dotenv(#[from] dotenvy::Error),
     #[error("cannot find a home directory; pass --data-dir <path>")]
     NoHome,
+    #[error("data dir {}: `~` is not expanded; use an absolute path", .0.display())]
+    TildeDataDir(PathBuf),
     #[error("cannot create directory {}: {source}", path.display())]
     CreateDir { path: PathBuf, source: io::Error },
     #[error("directory {} is not writable: {source}", path.display())]
@@ -41,7 +44,7 @@ impl Error {
     /// 2 for bad configuration, 1 for an unusable filesystem.
     pub fn exit_code(&self) -> u8 {
         match self {
-            Self::Missing(_) | Self::Invalid(_) | Self::Dotenv(_) => 2,
+            Self::Missing(_) | Self::Invalid(_) | Self::Dotenv(_) | Self::TildeDataDir(_) => 2,
             Self::NoHome | Self::CreateDir { .. } | Self::NotWritable { .. } => 1,
         }
     }
@@ -58,6 +61,10 @@ impl From<figment::Error> for Error {
                     match e.kind {
                         Kind::InvalidType(_, expected) | Kind::InvalidValue(_, expected) => {
                             format!("{var}: expected {expected}")
+                        }
+                        // url's custom error quotes the input.
+                        Kind::Message(_) if var == OTEL_ENDPOINT_VAR => {
+                            format!("{var}: expected an http(s) URL")
                         }
                         kind => format!("{var}: {kind}"),
                     }
@@ -130,7 +137,7 @@ impl Config {
         match &self.otel_endpoint {
             Some(url) if !matches!(url.scheme(), "http" | "https") || !url.has_host() => {
                 Err(Error::Invalid(vec![format!(
-                    "{ENV_PREFIX}OTEL_ENDPOINT: expected an http(s) URL with a host, found {url}"
+                    "{OTEL_ENDPOINT_VAR}: expected an http(s) URL with a host"
                 )]))
             }
             _ => Ok(()),
@@ -251,11 +258,8 @@ fn pick_data_dir(flag: Option<PathBuf>, env: Option<OsString>) -> Option<PathBuf
 // No shell expands `~` in `.env` or a quoted flag, and a relative dir would
 // move with any later chdir.
 fn absolute_data_dir(dir: PathBuf) -> Result<PathBuf> {
-    if dir.starts_with("~") {
-        return Err(Error::Invalid(vec![format!(
-            "data dir {}: `~` is not expanded; use an absolute path",
-            dir.display()
-        )]));
+    if dir.as_os_str().as_encoded_bytes().starts_with(b"~") {
+        return Err(Error::TildeDataDir(dir));
     }
     std::path::absolute(&dir).map_err(|source| Error::CreateDir { path: dir, source })
 }
@@ -376,12 +380,13 @@ mod tests {
     fn otel_endpoint_needs_http_scheme() -> figment::Result<()> {
         Jail::try_with(|jail| {
             jail.clear_env();
-            jail.set_env("TRIAGE_OTEL_ENDPOINT", "localhost:4317");
+            jail.set_env("TRIAGE_OTEL_ENDPOINT", "otlp://user:secret@host");
             let message = Config::from_env()
                 .err()
                 .map(|e| e.to_string())
                 .unwrap_or_default();
             assert!(message.contains("TRIAGE_OTEL_ENDPOINT"), "{message}");
+            assert!(!message.contains("secret"), "{message}");
             Ok(())
         })
     }
@@ -391,20 +396,23 @@ mod tests {
         Jail::try_with(|jail| {
             jail.clear_env();
             jail.set_env("TRIAGE_PORT", "hunter2");
+            jail.set_env("TRIAGE_OTEL_ENDPOINT", "hunter3");
             let message = Config::from_env()
                 .err()
                 .map(|e| e.to_string())
                 .unwrap_or_default();
-            assert!(message.contains("TRIAGE_PORT"), "{message}");
-            assert!(!message.contains("hunter2"), "{message}");
+            assert!(message.contains("TRIAGE_"), "{message}");
+            assert!(!message.contains("hunter"), "{message}");
             Ok(())
         })
     }
 
     #[test]
     fn tilde_data_dir_is_rejected() {
-        let err = absolute_data_dir(PathBuf::from("~/x")).err();
-        assert_eq!(err.map(|e| e.exit_code()), Some(2));
+        for dir in ["~/x", "~user/x"] {
+            let err = absolute_data_dir(PathBuf::from(dir)).err();
+            assert_eq!(err.map(|e| e.exit_code()), Some(2), "{dir}");
+        }
     }
 
     #[test]

@@ -11,13 +11,12 @@ lines, plus a summary of at most three lines.
 ## 1. Scope
 
 - **Full review** (first run on the PR): the PR's own diff against its base
-  branch, `gh pr diff <n>`. For a stacked PR, never re-review the base PR's content.
+  branch, `gh pr diff <n>`.
 - **Incremental review** (a later push): only the commits the workflow lists
   as new. Code that did not change since your last review is out of scope.
-- Read the linked issue (`Closes #N`). The first check is always: does the diff
-  do what the issue says, nothing more, nothing less. In a stacked PR, flag any
-  change to code from a lower PR that the issue does not need (🟠): it belongs
-  on the lower PR's branch.
+- Read the PR body and, on a `feature/*` branch, each new commit's body: the
+  slice's paragraph, `verify:` steps, and `notes:`. The first check is always:
+  does the diff do what that says, nothing more, nothing less.
 - Read the code around each hunk, its callers and tests, and grep for sibling
   patterns. Most real bugs sit at the seams between the diff and what it touches.
 
@@ -48,7 +47,7 @@ to prove.
 
 ## 4. Severity
 
-- 🔴 bug, security issue, data loss, or breaks the issue's intent
+- 🔴 bug, security issue, data loss, or breaks the slice's or PR's intent
 - 🟠 real design, correctness, or test gap
 - 🟡 clarity or maintainability
 - ⚪ `nit:` style or taste
@@ -61,7 +60,7 @@ these holds:
 - The fix touches security, auth, secrets, data deletion, migrations, or
   guardrail and autonomy semantics.
 - The fix is hard to reverse.
-- The issue or spec is vague or silent on the behaviour in question.
+- The PR or slice body is vague or silent on the behaviour in question.
 - Two reasonable fixes lead to different product behaviour.
 
 Write it as an inline comment starting with `❓`, in the "Asking for a decision"
@@ -79,7 +78,7 @@ gh api repos/{owner}/{repo}/pulls/<n>/reviews --input review.json
 `review.json`: `commit_id` (PR head), `event`, `body`, and `comments` with
 `path`, `line`, `side: RIGHT`, `body`.
 
-- Each finding is an inline comment on the line it is about:
+- Each finding, nits included, is an inline comment on the line it is about:
   `<severity> <defect>. Fix: <fix>.` Add a GitHub `suggestion` block when the
   fix is a pure replacement of the commented lines.
 - A finding goes in the top-level body only when no diff line can carry it.

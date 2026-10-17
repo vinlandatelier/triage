@@ -22,7 +22,6 @@ Fresh clone: `just setup && just check`. CI runs the same recipes.
 | `just fmt-check` / `clippy` / `check-layout` / `test` | one Rust gate on its own; `test` is nextest |
 | `just deny` / `machete` | after adding or removing a Rust dependency |
 | `just check-web` | every web gate: lint, typecheck, doctor, knip, test |
-| `just hooks` | every prek commit hook on the whole tree, as CI runs it |
 | `just e2e` | Playwright against a fresh release build, after a UI flow changes |
 | `just build-web` / `build` | `web/dist/`, then the release binary with it embedded |
 | `just openapi` / `openapi-check` | after a route or response type changes |
@@ -30,6 +29,7 @@ Fresh clone: `just setup && just check`. CI runs the same recipes.
 | `just db-prepare` / `db-prepare-check` | after a query or migration changes, regenerate `.sqlx/` |
 | `just db-schema` / `db-schema-check` | after a migration, regenerate `schema.sql` (run `db-prepare` first) |
 | `just skills-update` | pull upstream changes into vendored skills; never commits |
+| `just loop <feature>` | the maintainer's private feature loop; `.eng/` is gitignored |
 | `just` (`default`) | list recipes |
 | `bun run dev` / `build` | Vite dev server / production build; `just dev` and `just build-web` call them |
 | `bun run lint` / `fix` | Biome check / Biome write |
@@ -89,51 +89,30 @@ Copy `features/hello/` on both sides for a new feature.
 ## Conventions
 
 - Commits and PR titles: Conventional Commits, `type(scope): imperative summary`.
-- One issue, one PR, branch named `<issue>-<slug>`, body contains `Closes #<issue>`.
-  Chores with no issue use `<type>-<slug>`.
-- Stack a change on an unmerged PR with `gh stack`; don't wait or bundle. Prefer
-  small stacked PRs whenever the pieces are reviewable on their own.
-- In a stack, change code from lower PRs only where your PR needs it. A defect
-  in a lower PR gets fixed on that PR's branch, then restack.
-- Never push to `master` or merge; the maintainer merges.
-- The only rewrite of a pushed branch is a restack: `gh stack rebase`, then
-  `gh stack push` (`--force-with-lease`). Never plain `--force`.
-- Stack operations go through `gh stack` only (`checkout`, `rebase`, `push`,
-  `sync`, `link`), never `git rebase` or a hand-run `git push --force-with-lease`.
-- Squash merge is the repo policy, so keep each PR to one logical change.
-- PR body: `Closes #N`, then `## what` (bullets), `## verify` (numbered steps),
-  and `## why` / `## notes` only when needed. Bullets over paragraphs.
+- Feature work lands on `feature/<name>`: one PR, one commit per slice, in
+  order, with a `Slice: <nn>-<slug>` trailer. The commit body carries a
+  paragraph, `verify:` steps, and `notes:`; the PR body is the feature's PRD.
+  Rebase-merge, so master gets one commit per slice.
+- A slice commit is never amended or rebased while the PR is open. A review
+  fix is a new commit titled `fixup! <slice subject>`; `/vai squash` folds them
+  before the merge.
+- Chores outside the loop use `<type>-<slug>` branches and squash-merge, one
+  logical change per PR.
+- Never push to `master`, merge, force-push, or rebase a pushed branch. The
+  maintainer merges. `scripts/squash.sh` is the one sanctioned rewrite.
+- PR body for a chore: `## what` (bullets), `## verify` (numbered steps), and
+  `## why` / `## notes` only when needed. Bullets over paragraphs.
 - Comments explain non-obvious why only. No restating code, no banners.
 - A `just` recipe longer than about 10 lines moves to `scripts/<recipe>.sh`; the
   recipe calls it.
 - Documentation names no individual people. Use "the maintainer" or "the user".
 - When a question needs a person, mention whoever has the most context: the PR
-  or issue author, a reviewer, the author of the conflicting change. Mention
+  author, a reviewer, the author of the conflicting change. Mention
   only people with write access, never outside contributors or the public:
   `gh api repos/{owner}/{repo}/collaborators/<login>/permission` must say
   `admin`, `maintain`, or `write`. (`author_association` reads `CONTRIBUTOR`
   for members whose org membership is private.) When no one qualifies, mention
   the maintainer.
-
-## Restacking
-
-A PR in a stack that changes, or a PR below it that merges, leaves the PRs above
-it behind. Restack them:
-
-1. `gh stack checkout <PR>`, then `gh stack rebase --upstack` (or `gh stack
-   rebase` after a merge).
-2. Resolve each conflict whose intent is clear, then `gh stack rebase --continue`:
-   - same change on both sides: keep one copy
-   - independent edits: keep both
-   - generated or lock files: take either side, regenerate with `just`
-   - otherwise keep what each PR's issue says that PR must do
-3. If a resolution needs a product decision, or both intents might not survive,
-   run `gh stack rebase --abort` and ask the authors of the conflicting changes
-   on that PR, as in "Asking for a decision" below.
-4. Run the checks on each branch the rebase changed, then `gh stack push`.
-
-Never merge one branch into another to catch up (`git merge`, `git pull`): a
-merge commit stops `gh stack` from finding the old base for every PR above it.
 
 ## Walkthroughs
 
@@ -160,16 +139,20 @@ for anything a recording cannot show. When it helps, without being asked:
    and look at them. Every step must show for at least two frames, and nothing
    may look broken that the PR does not intend. Otherwise re-record, or fix the
    app.
-6. `scripts/walkthrough.sh <pr> <video>` converts it to a GIF, hosts it on
-   `refs/walkthroughs/<pr>`, and embeds it under `## walkthrough` in the PR body.
+6. `scripts/walkthrough.sh <branch-or-pr> <video>` converts it to a GIF, hosts
+   it on `refs/walkthroughs/<key>`, and prints the URL. The loop puts it in the
+   slice commit's `Walkthrough:` trailer; a person puts it under
+   `## walkthrough` in the PR body.
 7. Commit none of the temporary spec, config, or video.
 
 ## AI review
 
-A PR labelled `request-ai-review` gets a review from the assistant on the label
-and on every later push, following `.claude/skills/pr-review/SKILL.md`. Pushes
-that only restack are skipped. Agents fixing review comments never act on a
-`❓` comment; those wait for the person asked.
+Every push to a same-repo PR gets a review from the assistant, following
+`.claude/skills/pr-review/SKILL.md`. It reviews only the commits that are new
+since its last review, so a push that only squashes fixups reviews nothing.
+Every finding is an inline comment, nits included, severity first. Anything
+that needs a person is a `❓` decision; agents fixing review comments never
+act on a `❓` comment.
 
 ## Asking for a decision
 
@@ -196,10 +179,22 @@ when no diff line fits.
 
 ## Review assistant
 
-Triggered by `@vinland-ai`, `/vinland-ai`, or `/vai` in a comment, or by any reply in a
-thread it started. When triggered from a PR comment: make the requested change on the PR branch,
-run the relevant checks, push, restack if the PR has PRs above it, and reply in
-the same thread. Never merge, never touch `master`.
+Triggered by `@vinland-ai`, `/vinland-ai`, or `/vai` in a comment, or by any
+reply in a thread it started. Never merge, never touch `master`.
+
+- `/vai fix`: one session over every unresolved thread on the PR that is not a
+  `❓`. For each: fix it, reply with one line, resolve the thread; or dispute
+  with evidence (`file:line` or a repro) and leave it open. On a `feature/*`
+  branch each slice touched gets one `fixup! <slice subject>` commit; elsewhere
+  a normal commit. Run the relevant checks before pushing.
+- `/vai squash`: a script, not the model. Folds `fixup!` commits into their
+  slices on top of `origin/master`, pushes with `--force-with-lease`, replies
+  "ready to merge". A conflict aborts and names the slice. Post it as a PR
+  comment, not inline; from an inline thread the assistant only replies
+  "post `/vai squash` as a PR comment".
+- Anything else: make the requested change on the PR branch, run the relevant
+  checks, push (`fixup!` on a feature branch), and reply in the same thread.
+- A reply in a `❓` thread (`A`, `B`, or free text) is applied the same way.
 
 Reply style. The reader is scanning on a phone between other work.
 

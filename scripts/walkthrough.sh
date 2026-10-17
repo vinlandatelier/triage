@@ -1,8 +1,10 @@
 #!/usr/bin/env bash
-# walkthrough.sh <pr> <video>: turn a recording into a GIF, host it on refs/walkthroughs/<pr>, embed it in the PR body.
-# Clones and CI checkouts fetch only branches and tags, so GIFs on that ref never reach them.
+# walkthrough.sh <key> <video>: turn a recording into a GIF, host it on refs/walkthroughs/<key>,
+# print its raw URL. <key> is a branch name or PR number. The caller embeds the URL: the loop
+# in a commit trailer, a person in the PR body. Clones and CI checkouts fetch only branches
+# and tags, so GIFs on that ref never reach them.
 set -euo pipefail
-pr=$1 video=$2
+key=${1//\//-} video=$2
 repo=${REPO:-$(gh repo view --json nameWithOwner --jq .nameWithOwner)}
 if ! command -v ffmpeg >/dev/null; then
   # Installed here, not in the workflow, so runs that record nothing skip the install.
@@ -22,31 +24,17 @@ done
 
 # Plumbing instead of a checkout: no worktree and no local branch. Each recording is a new
 # file on top of the ref, so earlier PR bodies keep working and the push never needs force.
-ref=refs/walkthroughs/$pr
-path="pr/$pr/$(date +%s).gif"
+ref=refs/walkthroughs/$key
+path="$key/$(date +%s).gif"
 for attempt in 1 2 3; do
   rm -f "$tmp/idx"; base=""
   if git fetch -q origin "$ref" 2>/dev/null; then base=$(git rev-parse FETCH_HEAD); GIT_INDEX_FILE=$tmp/idx git read-tree "$base"; fi
   blob=$(git hash-object -w "$gif")
   GIT_INDEX_FILE=$tmp/idx git update-index --add --cacheinfo "100644,$blob,$path"
   tree=$(GIT_INDEX_FILE=$tmp/idx git write-tree)
-  commit=$(git commit-tree "$tree" ${base:+-p "$base"} -m "walkthrough for #$pr")
+  commit=$(git commit-tree "$tree" ${base:+-p "$base"} -m "walkthrough for $key")
   git push -q origin "$commit:$ref" 2> >(grep -v "^remote:" >&2) && break
   [[ $attempt -eq 3 ]] && exit 1
 done
 
-url="https://raw.githubusercontent.com/$repo/$commit/$path"
-gh pr view "$pr" -R "$repo" --json body --jq .body >"$tmp/body.md"
-python3 - "$tmp/body.md" "$url" <<'PY'
-import re, sys
-p, url = sys.argv[1], sys.argv[2]
-body = open(p).read().rstrip()
-section = f"## walkthrough\n![walkthrough]({url})"
-if "## walkthrough" in body:
-    body = re.sub(r"## walkthrough\n.*?(?=\n## |\Z)", section, body, flags=re.S)
-else:
-    body += "\n\n" + section
-open(p, "w").write(body + "\n")
-PY
-gh pr edit "$pr" -R "$repo" --body-file "$tmp/body.md" >/dev/null
-echo "$url"
+echo "https://raw.githubusercontent.com/$repo/$commit/$path"

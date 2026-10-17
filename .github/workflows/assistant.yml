@@ -18,9 +18,10 @@ permissions:
 jobs:
   respond:
     if: >-
-      contains(github.event.comment.body, '@vinland-ai') || contains(github.event.review.body, '@vinland-ai') ||
-      contains(github.event.comment.body, '/vinland-ai') || contains(github.event.review.body, '/vinland-ai') ||
-      contains(github.event.comment.body, '/vai') || contains(github.event.review.body, '/vai')
+      !(github.event_name == 'issue_comment' && contains(github.event.comment.body, '/vai squash')) &&
+      (contains(github.event.comment.body, '@vinland-ai') || contains(github.event.review.body, '@vinland-ai') ||
+       contains(github.event.comment.body, '/vinland-ai') || contains(github.event.review.body, '/vinland-ai') ||
+       contains(github.event.comment.body, '/vai') || contains(github.event.review.body, '/vai'))
     runs-on: ubuntu-latest
     steps:
       # contains() above ignores word boundaries ("/vain" passes it). The action takes one
@@ -69,10 +70,6 @@ jobs:
         with:
           bun-version-file: .bun-version
 
-      - if: steps.trigger.outputs.phrase
-        run: gh extension install github/gh-stack --pin v0.2.1
-        env:
-          GH_TOKEN: ${{ steps.app.outputs.token }}
 
       - if: steps.trigger.outputs.phrase
         uses: anthropics/claude-code-action@v1
@@ -83,7 +80,7 @@ jobs:
           claude_args: >-
             --model claude-opus-5-5 --max-turns 60
             --allowedTools "Bash,Edit,Write,Read,Glob,Grep"
-            --disallowedTools "Bash(gh pr merge:*),Bash(gh stack merge:*),Bash(git push --force *),Bash(git push -f *),Bash(git rebase:*),Bash(git push --force-with-lease*),Bash(git push * --force*),Bash(git push * -f*),Bash(git push *+*),Bash(gh api *merge*),Bash(git merge:*),Bash(git pull:*)"
+            --disallowedTools "Bash(gh pr merge:*),Bash(git push --force *),Bash(git push -f *),Bash(git rebase:*),Bash(git push --force-with-lease*),Bash(git push * --force*),Bash(git push * -f*),Bash(git push *+*),Bash(gh api *merge*),Bash(git merge:*),Bash(git pull:*)"
 
   # Replies in a review thread the assistant started need no mention.
   thread-reply:
@@ -144,10 +141,6 @@ jobs:
         with:
           bun-version-file: .bun-version
 
-      - if: steps.root.outputs.ours == 'true'
-        run: gh extension install github/gh-stack --pin v0.2.1
-        env:
-          GH_TOKEN: ${{ steps.app.outputs.token }}
 
       - if: steps.root.outputs.ours == 'true'
         uses: anthropics/claude-code-action@v1
@@ -157,10 +150,68 @@ jobs:
           prompt: |
             @${{ github.event.comment.user.login }} replied in review thread ${{ github.event.comment.in_reply_to_id }} on PR #${{ github.event.pull_request.number }}, which you started.
             Their reply (comment ${{ github.event.comment.id }}): read it with `gh api repos/${{ github.repository }}/pulls/comments/${{ github.event.comment.id }}`, and read the whole thread for context.
-            If it answers a decision (`A`, `B`, or free text), apply it on branch `${{ github.event.pull_request.head.ref }}`, run the checks, push, restack per CLAUDE.md, then reply in the thread with one line saying what changed and resolve the thread.
+            If it answers a decision (`A`, `B`, or free text), apply it on branch `${{ github.event.pull_request.head.ref }}`, run the checks, push as a `fixup! <slice subject>` commit when the branch is `feature/*`, else a normal commit, then reply in the thread with one line saying what changed and resolve the thread.
             If it asks a question or pushes back, answer in the thread in the review assistant reply style.
             Reply with: gh api repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/comments/${{ github.event.comment.in_reply_to_id }}/replies -f body=...
           claude_args: >-
             --model claude-opus-5-5 --max-turns 60
             --allowedTools "Bash,Edit,Write,Read,Glob,Grep"
-            --disallowedTools "Bash(gh pr merge:*),Bash(gh stack merge:*),Bash(git push --force *),Bash(git push -f *),Bash(git rebase:*),Bash(git push --force-with-lease*),Bash(git push * --force*),Bash(git push * -f*),Bash(git push *+*),Bash(gh api *merge*)"
+            --disallowedTools "Bash(gh pr merge:*),Bash(git push --force *),Bash(git push -f *),Bash(git rebase:*),Bash(git push --force-with-lease*),Bash(git push * --force*),Bash(git push * -f*),Bash(git push *+*),Bash(gh api *merge*)"
+
+  # /vai squash: fold fixup commits into their slices so the maintainer can rebase-merge. A
+  # script, not the model: the rewrite is mechanical and must never invent a resolution.
+  squash:
+    if: github.event_name == 'issue_comment' && github.event.issue.pull_request && contains(github.event.comment.body, '/vai squash')
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - id: trigger
+        env:
+          BODY: ${{ github.event.comment.body }}
+        run: |
+          if printf '%s' "$BODY" | grep -qE '(^|[[:space:]])/vai squash([[:space:].,!?;:]|$)'; then
+            echo "hit=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - if: steps.trigger.outputs.hit
+        uses: actions/create-github-app-token@v1
+        id: app
+        with:
+          app-id: ${{ secrets.ASSISTANT_APP_ID }}
+          private-key: ${{ secrets.ASSISTANT_APP_PRIVATE_KEY }}
+
+      - if: steps.trigger.outputs.hit
+        id: pr
+        env:
+          GH_TOKEN: ${{ steps.app.outputs.token }}
+          PR: ${{ github.event.issue.number }}
+          WHO: ${{ github.event.comment.user.login }}
+        run: |
+          perm=$(gh api "repos/$GITHUB_REPOSITORY/collaborators/$WHO/permission" --jq .permission || echo none)
+          [[ "$perm" =~ ^(admin|maintain|write)$ ]] || { echo "$WHO has $perm access; ignoring." >&2; exit 1; }
+          gh api "repos/$GITHUB_REPOSITORY/issues/comments/${{ github.event.comment.id }}/reactions" -f content=eyes --silent || true
+          echo "branch=$(gh pr view "$PR" -R "$GITHUB_REPOSITORY" --json headRefName --jq .headRefName)" >> "$GITHUB_OUTPUT"
+
+      - if: steps.pr.outputs.branch
+        uses: actions/checkout@v4
+        with:
+          token: ${{ steps.app.outputs.token }}
+          ref: ${{ steps.pr.outputs.branch }}
+          fetch-depth: 0
+
+      - if: steps.pr.outputs.branch
+        id: squash
+        env:
+          BRANCH: ${{ steps.pr.outputs.branch }}
+        run: |
+          git config user.name 'vinland-ai[bot]'
+          git config user.email '5348916+vinland-ai[bot]@users.noreply.github.com'
+          if out=$(scripts/squash.sh "$BRANCH" 2>&1); then echo "reply=ready to merge · $out" >> "$GITHUB_OUTPUT"
+          else echo "reply=squash failed · $(tail -n 1 <<<"$out")" >> "$GITHUB_OUTPUT"; fi
+
+      - if: steps.squash.outputs.reply
+        env:
+          GH_TOKEN: ${{ steps.app.outputs.token }}
+          PR: ${{ github.event.issue.number }}
+          REPLY: ${{ steps.squash.outputs.reply }}
+        run: gh pr comment "$PR" -R "$GITHUB_REPOSITORY" --body "$REPLY"

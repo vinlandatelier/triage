@@ -140,7 +140,8 @@ def post(pr, verdict_file):
     approvals = [x for x in json.loads(gh("api", "--paginate", f"repos/{r}/pulls/{pr}/reviews"))
                  if x["user"]["login"] == f"{BOT_LOGIN}[bot]" and x["state"] == "APPROVED"]
     if ok:
-        if not any(x["commit_id"] == sha for x in approvals):
+        # One approval per approvable streak; the comment above carries the current SHA.
+        if not approvals:
             gh("api", f"repos/{r}/pulls/{pr}/reviews", "-f", f"commit_id={sha}",
                "-f", "event=APPROVE", "-f", f"body={head}")
     else:

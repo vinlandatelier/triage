@@ -47,6 +47,17 @@ jobs:
           app-id: ${{ secrets.ASSISTANT_APP_ID }}
           private-key: ${{ secrets.ASSISTANT_APP_PRIVATE_KEY }}
 
+      # Only PRs by people with write access get reviewed or approved. author_association
+      # would read CONTRIBUTOR for members whose org membership is private.
+      - name: author has write access
+        env:
+          GH_TOKEN: ${{ steps.app.outputs.token }}
+          PR: ${{ github.event.pull_request.number || inputs.pr }}
+        run: |
+          who=$(gh pr view "$PR" -R "$GITHUB_REPOSITORY" --json author --jq .author.login)
+          perm=$(gh api "repos/$GITHUB_REPOSITORY/collaborators/$who/permission" --jq .permission || echo none)
+          [[ "$perm" =~ ^(admin|maintain|write)$ ]] || { echo "PR #$PR author $who has $perm access; skipping." >&2; exit 1; }
+
       - uses: actions/checkout@v4
         with:
           token: ${{ steps.app.outputs.token }}
@@ -129,13 +140,20 @@ jobs:
             --disallowedTools "Edit,Write,Bash(git push:*),Bash(gh pr merge:*),Bash(gh stack:*),Bash(gh api *merge*),Bash(gh pr review:*),Bash(gh pr comment:*)"
 
       # Fails closed: a missing or malformed verdict posts as not approvable.
-      - if: ${{ !cancelled() && steps.gate.outcome == 'success' }}
+      # Runs whenever approvability was due, even after a failed step, so a crash never leaves
+      # an earlier approval standing.
+      - if: ${{ !cancelled() && steps.scope.outputs.mode != '' && steps.scope.outputs.mode != 'skip' }}
         env:
           GH_TOKEN: ${{ steps.app.outputs.token }}
           PR: ${{ github.event.pull_request.number || inputs.pr }}
+          MASTER: ${{ github.event.repository.default_branch }}
         run: |
           gate=$RUNNER_TEMP/gate.json verdict=$RUNNER_TEMP/verdict.json final=$RUNNER_TEMP/final.json
-          if [ "$(jq -r .pass "$gate")" != true ]; then
+          [ -f "$RUNNER_TEMP/approvability.py" ] || git show "origin/$MASTER:scripts/approvability.py" > "$RUNNER_TEMP/approvability.py"
+          if ! jq -e .sha "$gate" >/dev/null 2>&1; then
+            sha=$(gh pr view "$PR" -R "$GITHUB_REPOSITORY" --json headRefOid --jq .headRefOid)
+            jq -n --arg sha "$sha" '{sha: $sha, approvable: false, reasons: ["approvability check failed to run"]}' > "$final"
+          elif [ "$(jq -r .pass "$gate")" != true ]; then
             cp "$gate" "$final"
           elif jq -e '(.approvable | type) == "boolean" and (.reasons | type) == "array" and (.reasons | length) > 0' "$verdict" >/dev/null 2>&1; then
             jq -s '.[1] + {sha: .[0].sha}' "$gate" "$verdict" > "$final"

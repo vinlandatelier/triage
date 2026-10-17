@@ -68,6 +68,14 @@ A rule that names a check (CI, `just`, prek) holds now; the check enforces it on
 - Lints live in `[workspace.lints]`. Every crate sets `lints.workspace = true`.
 - Lint group entries (`all`, `pedantic`) carry `priority = -1` so single-lint overrides win.
 
+## Dev tools
+
+`just setup` installs or reports each one: rustup and the pinned toolchain, cargo-binstall, cargo-nextest, cargo-deny, cargo-machete, sqlx-cli, bacon, prek, bun, Node 24, actionlint. Cargo tools come from `cargo binstall`, falling back to `cargo install`. macOS uses Homebrew for the rest; Linux uses official installers or release binaries.
+
+- `just` ≥ 1.42, enforced at the top of the `justfile`.
+- `bacon.toml` holds the watch jobs. `just dev` runs `run-server`.
+- `deny.toml` allows MIT, Apache-2.0, BSD-2-Clause, BSD-3-Clause, ISC, Unicode-3.0, MPL-2.0, Zlib, and crates.io as the only source.
+
 ## Dependency allowlist
 
 Rust: tokio, axum, tower, tower-http, hyper, serde, serde_json, sqlx, utoipa, utoipa-axum, utoipa-scalar, tracing, tracing-subscriber, tracing-appender, tracing-opentelemetry, opentelemetry, opentelemetry_sdk, opentelemetry-otlp, figment, dotenvy, thiserror, anyhow, problem_details, clap, clap_complete, directories, rust-embed, mime_guess, ulid, time, uuid, url. Dev: axum-test, insta, tempfile, pretty_assertions, tokio-test.

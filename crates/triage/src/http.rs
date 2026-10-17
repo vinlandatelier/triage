@@ -15,9 +15,11 @@ use crate::config::{Config, Paths};
 use crate::telemetry;
 
 mod middleware;
+mod probe;
 mod router;
 mod state;
 
+pub use probe::{Health, probe};
 pub use router::router;
 pub use state::AppState;
 

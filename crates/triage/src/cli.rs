@@ -10,7 +10,7 @@ use clap_complete::Shell;
 use time::OffsetDateTime;
 
 use crate::config::{self, Config, Paths};
-use crate::{http, telemetry};
+use crate::{http, store, telemetry};
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
@@ -18,6 +18,10 @@ pub enum Error {
     Config(#[from] config::Error),
     #[error(transparent)]
     Http(#[from] http::Error),
+    #[error(transparent)]
+    Store(#[from] store::Error),
+    #[error("cannot start the async runtime: {0}")]
+    Runtime(io::Error),
 }
 
 impl Error {
@@ -25,6 +29,8 @@ impl Error {
         match self {
             Self::Config(err) => err.exit_code(),
             Self::Http(err) => err.exit_code(),
+            Self::Store(err) => err.exit_code(),
+            Self::Runtime(_) => 1,
         }
     }
 }
@@ -62,6 +68,9 @@ enum Command {
     /// Locate log files
     #[command(subcommand)]
     Logs(LogsCommand),
+    /// Inspect the database
+    #[command(subcommand)]
+    Db(DbCommand),
     /// Print a shell completion script to stdout
     Completions { shell: CompletionShell },
 }
@@ -70,6 +79,12 @@ enum Command {
 enum LogsCommand {
     /// Print the absolute path of today's JSONL log file, which may not exist yet
     Path,
+}
+
+#[derive(Debug, Subcommand)]
+enum DbCommand {
+    /// Migrate the database, then print its schema as ordered `CREATE` statements
+    Schema,
 }
 
 #[derive(Debug, Subcommand)]
@@ -122,6 +137,10 @@ pub fn run(cli: Cli) -> Result<ExitCode, Error> {
             logs_path(&paths);
             ExitCode::SUCCESS
         }
+        Some(Command::Db(DbCommand::Schema)) => {
+            db_schema(&paths)?;
+            ExitCode::SUCCESS
+        }
         Some(Command::Completions { .. }) | None => ExitCode::SUCCESS,
     })
 }
@@ -156,6 +175,20 @@ fn logs_path(paths: &Paths) {
         "{}",
         telemetry::log_file(&paths.logs, OffsetDateTime::now_utc().date()).display()
     );
+}
+
+#[expect(clippy::print_stdout, reason = "CLI output")]
+fn db_schema(paths: &Paths) -> Result<(), Error> {
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .map_err(Error::Runtime)?;
+    let schema = runtime.block_on(async {
+        let store = store::open(paths).await?;
+        store::dump_schema(&store.read).await
+    })?;
+    print!("{schema}");
+    Ok(())
 }
 
 #[expect(clippy::print_stdout, reason = "CLI output")]

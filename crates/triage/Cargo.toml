@@ -41,6 +41,7 @@ uuid = { version = "1.28.0", default-features = false, features = ["std", "v7"] 
 axum-test = { version = "21.1.0", default-features = false }
 figment = { version = "0.10.19", features = ["env", "test"] }
 insta = "1.49.0"
+pretty_assertions = "1.4.1"
 tempfile = "3.27.0"
 time = { version = "0.3.55", features = ["parsing"] }
 

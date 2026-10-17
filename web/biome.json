@@ -20,5 +20,10 @@
       "preset": "recommended",
       "a11y": "on"
     }
+  },
+  "css": {
+    "parser": {
+      "tailwindDirectives": true
+    }
   }
 }

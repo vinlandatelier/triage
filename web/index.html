@@ -4,6 +4,18 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Triage</title>
+    <!-- Runs before first paint so a stored dark theme never flashes light. Mirrors theme-provider.tsx. -->
+    <script>
+      {
+        let theme = null;
+        try {
+          theme = localStorage.getItem("triage-theme");
+        } catch {}
+        if (theme !== "light" && theme !== "dark")
+          theme = matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+        document.documentElement.classList.add(theme);
+      }
+    </script>
   </head>
   <body>
     <div id="root"></div>

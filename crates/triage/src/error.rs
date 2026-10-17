@@ -55,12 +55,13 @@ pub struct ProblemSchema {
     #[schema(format = "uri")]
     r#type: String,
     title: String,
+    #[schema(minimum = 100, maximum = 599)]
     status: u16,
     /// Present on 4xx only.
     #[schema(required = false)]
     detail: String,
     /// The request id.
-    #[schema(required = false)]
+    #[schema(required = false, format = "uri-reference")]
     instance: String,
     /// Present on validation problems only.
     #[schema(required = false)]

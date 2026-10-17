@@ -166,6 +166,9 @@ db-schema-check:
 
 # Regenerate crates/triage/openapi.json from the registered routes.
 openapi:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    trap 'rm -f crates/triage/openapi.json.tmp' EXIT
     cargo run --quiet --locked --bin gen_openapi > crates/triage/openapi.json.tmp
     mv crates/triage/openapi.json.tmp crates/triage/openapi.json
 

@@ -1,4 +1,7 @@
+use std::collections::BTreeSet;
+
 use serde_json::Value;
+use triage::error::{AppError, FieldError};
 use triage::http::{api_doc, api_json};
 
 use crate::helpers::{TestResult, spawn_app};
@@ -12,6 +15,69 @@ fn openapi_spec_is_current() -> TestResult {
         api_json()?,
         "{path} is stale: run `just openapi` (left: committed, right: code)"
     );
+    assert_keys_sorted(&serde_json::from_str(&committed)?, "$");
+    Ok(())
+}
+
+/// `api_json` sorts only while no crate enables the `serde_json` feature `preserve_order`.
+fn assert_keys_sorted(value: &Value, at: &str) {
+    match value {
+        Value::Object(map) => {
+            let keys: Vec<_> = map.keys().collect();
+            assert!(keys.is_sorted(), "{at}: keys are not sorted: {keys:?}");
+            for (key, child) in map {
+                assert_keys_sorted(child, &format!("{at}.{key}"));
+            }
+        }
+        Value::Array(items) => {
+            for (i, child) in items.iter().enumerate() {
+                assert_keys_sorted(child, &format!("{at}[{i}]"));
+            }
+        }
+        _ => {}
+    }
+}
+
+#[test]
+fn problem_schema_matches_the_body() -> TestResult {
+    let doc = serde_json::to_value(api_doc())?;
+    let schema = &doc["components"]["schemas"]["Problem"];
+    let properties: BTreeSet<_> = schema["properties"]
+        .as_object()
+        .ok_or("Problem has no properties")?
+        .keys()
+        .cloned()
+        .collect();
+
+    let full = AppError::Validation(vec![FieldError {
+        field: "name".to_owned(),
+        message: "required".to_owned(),
+    }])
+    .problem()
+    .with_instance(axum::http::Uri::from_static("req-1"));
+    let full = serde_json::to_value(full)?;
+    let keys: BTreeSet<_> = full
+        .as_object()
+        .ok_or("problem is not an object")?
+        .keys()
+        .cloned()
+        .collect();
+    assert_eq!(
+        keys, properties,
+        "error::ProblemSchema no longer matches the problem body"
+    );
+
+    let minimal = serde_json::to_value(AppError::Internal(anyhow::anyhow!("boom")).problem())?;
+    for required in schema["required"]
+        .as_array()
+        .ok_or("Problem has no required")?
+    {
+        let key = required.as_str().ok_or("required entry is not a string")?;
+        assert!(
+            minimal.get(key).is_some(),
+            "required `{key}` missing from {minimal}"
+        );
+    }
     Ok(())
 }
 

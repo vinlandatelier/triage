@@ -65,11 +65,13 @@
           },
           "instance": {
             "description": "The request id.",
+            "format": "uri-reference",
             "type": "string"
           },
           "status": {
             "format": "int32",
-            "minimum": 0,
+            "maximum": 599,
+            "minimum": 100,
             "type": "integer"
           },
           "title": {

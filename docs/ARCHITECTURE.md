@@ -24,7 +24,7 @@ triage/
       telemetry.rs       tracing layers, dormant otel
       telemetry/         columns.rs (stderr formatter) otel.rs (OTLP exporter)
       http.rs            serve: lock, bind, graceful shutdown
-      http/              router.rs state.rs middleware.rs probe.rs assets.rs
+      http/              router.rs state.rs middleware.rs probe.rs openapi.rs assets.rs
       store/             pool.rs
       guardrails/        placeholder
       features/
@@ -125,7 +125,7 @@ Handlers return `crate::error::Result<T>` with `AppError`: `NotFound(String)` 40
 
 ## Contract
 
-Routes register through `utoipa_axum::router::OpenApiRouter` in `http::router::routes`, each handler annotated with `#[utoipa::path]` and an explicit `operation_id` of the form `<feature>_<verb>` (`health_get`), so hey-api names read `healthGetOptions`. `http::api_doc()` splits that router and returns the spec: OpenAPI 3.1, title `Triage`, version from Cargo, server `http://127.0.0.1:7311`. It registers `Problem` and `FieldError` as schemas and a `Problem` response (`application/problem+json`), and gives every operation that response as its `default`. `problem_details` implements only utoipa 5's `ToSchema`, so `error::ProblemSchema` describes the body instead and must change when `Problem` does. The daemon serves the spec at `GET /api/openapi.json`, outside the spec. `crates/triage/openapi.json` is the committed copy, written by `src/bin/gen_openapi.rs` through `http::api_json` (keys sorted via `serde_json::Value`, trailing newline); the spec is a runtime value, so a bin builds it, not `build.rs`. `just openapi` regenerates it; `openapi::openapi_spec_is_current` fails with a diff when it is stale, and prek runs that test through `just openapi-check` when anything under `crates/triage/src/` or `openapi.json` changes. The package sets `default-run = "triage"` so `cargo run` still means the daemon.
+Routes register through `utoipa_axum::router::OpenApiRouter` in `http::router::routes`, each handler annotated with `#[utoipa::path]` and an explicit `operation_id` of the form `<feature>_<verb>` (`health_get`), so hey-api names read `healthGetOptions`. `http::api_doc()` splits that router and returns the spec: OpenAPI 3.1, title `Triage`, version from Cargo, server `http://127.0.0.1:7311`. It registers `Problem` and `FieldError` as schemas and a `Problem` response (`application/problem+json`), and gives every operation that response as its `default`. `problem_details` implements only utoipa 5's `ToSchema`, so `error::ProblemSchema` describes the body instead and must change when `Problem` does. The daemon serves the spec at `GET /api/openapi.json`, outside the spec. `crates/triage/openapi.json` is the committed copy, written by `src/bin/gen_openapi.rs` through `http::api_json` (keys sorted via `serde_json::Value`, trailing newline); the spec is a runtime value, so a bin builds it, not `build.rs`. `just openapi` regenerates it; `openapi::openapi_spec_is_current` fails with a diff when it is stale, and prek runs that test through `just openapi-check` when anything under `crates/triage/src/`, `openapi.json`, either `Cargo.toml`, or `Cargo.lock` changes. `openapi::problem_schema_matches_the_body` fails when `ProblemSchema` and a rendered problem disagree on keys. The package sets `default-run = "triage"` so `cargo run` still means the daemon.
 
 ## Observability
 

@@ -1,0 +1,21 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": ["config:recommended", "group:allNonMajor", "schedule:weekly"],
+  "automerge": false,
+  "lockFileMaintenance": { "enabled": true },
+  "customManagers": [
+    {
+      "customType": "regex",
+      "description": "prek.toml is not read by the built-in pre-commit manager",
+      "managerFilePatterns": ["/^prek\\.toml$/"],
+      "matchStrings": ["repo = \"https://github\\.com/(?<depName>[^\"]+)\"\\s*\\nrev = \"(?<currentValue>[^\"]+)\""],
+      "datasourceTemplate": "github-tags"
+    },
+    {
+      "customType": "regex",
+      "managerFilePatterns": ["/^prek\\.toml$/"],
+      "matchStrings": ["\"(?<depName>@commitlint/[a-z-]+)@(?<currentValue>[^\"]+)\""],
+      "datasourceTemplate": "npm"
+    }
+  ]
+}

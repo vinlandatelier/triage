@@ -113,7 +113,7 @@ setup:
     fi
     # Git hooks and plain shells use the user's PATH, not the one exported above.
     user_path={{ quote(user_path) }}
-    for tool in cargo prek bun actionlint; do
+    for tool in cargo just prek bun actionlint; do
         dir="$(dirname "$(command -v "$tool" 2>/dev/null || echo /)")"
         if has "$tool" && [[ ":$user_path:" != *":$dir:"* ]]; then
             echo "warning: $tool is in $dir, which is not on your shell PATH"
@@ -129,7 +129,7 @@ setup:
         exit 1
     fi
 
-    bun install --frozen-lockfile
+    bun install --frozen-lockfile && prek install --install-hooks
 
 # Run every quality gate.
 check: fmt-check clippy deny machete test

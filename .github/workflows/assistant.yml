@@ -33,7 +33,7 @@ jobs:
           token: ${{ steps.app.outputs.token }}
           fetch-depth: 0
 
-      - run: gh extension install github/gh-stack
+      - run: gh extension install github/gh-stack --pin v0.2.1
         env:
           GH_TOKEN: ${{ steps.app.outputs.token }}
 

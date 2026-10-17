@@ -11,6 +11,11 @@ permissions:
   id-token: write
   actions: read
 
+# Merges in quick succession queue instead of racing on the same stack.
+concurrency:
+  group: restack
+  cancel-in-progress: false
+
 jobs:
   restack:
     if: github.event.pull_request.merged && github.event.pull_request.base.ref == 'master'
@@ -27,11 +32,24 @@ jobs:
           token: ${{ steps.app.outputs.token }}
           fetch-depth: 0
 
-      - run: gh extension install github/gh-stack
+      # Skip the model session when no open PR is missing its base's latest commits.
+      - id: stale
+        env:
+          GH_TOKEN: ${{ steps.app.outputs.token }}
+        run: |
+          n=0
+          while read -r head base; do
+            git merge-base --is-ancestor "origin/$base" "origin/$head" 2>/dev/null || n=$((n + 1))
+          done < <(gh pr list --state open --limit 200 --json headRefName,baseRefName --jq '.[] | "\(.headRefName) \(.baseRefName)"')
+          echo "count=$n" >> "$GITHUB_OUTPUT"
+
+      - if: steps.stale.outputs.count != '0'
+        run: gh extension install github/gh-stack --pin v0.2.1
         env:
           GH_TOKEN: ${{ steps.app.outputs.token }}
 
-      - uses: anthropics/claude-code-action@v1
+      - if: steps.stale.outputs.count != '0'
+        uses: anthropics/claude-code-action@v1
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           github_token: ${{ steps.app.outputs.token }}

@@ -97,6 +97,8 @@ jobs:
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           github_token: ${{ steps.app.outputs.token }}
+          # The assistant's own pushes (applied decisions, restacks) need review too.
+          allowed_bots: vinland-ai
           prompt: |
             Review PR #${{ github.event.pull_request.number || inputs.pr }} with the pr-review skill in .claude/skills/pr-review/SKILL.md.
             Mode: ${{ steps.scope.outputs.mode }}.${{ steps.scope.outputs.mode == 'incremental' && format(' Review only these new commits (git show each): {0}', steps.scope.outputs.commits) || '' }}
@@ -130,6 +132,8 @@ jobs:
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           github_token: ${{ steps.app.outputs.token }}
+          # The assistant's own pushes (applied decisions, restacks) need review too.
+          allowed_bots: vinland-ai
           prompt: |
             Decide whether PR #${{ github.event.pull_request.number || inputs.pr }} is approvable, following ${{ runner.temp }}/approvability.md.
             The hard gate passed; its result is in ${{ runner.temp }}/gate.json.

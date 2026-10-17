@@ -27,9 +27,6 @@ jobs:
         with:
           app-id: ${{ secrets.ASSISTANT_APP_ID }}
           private-key: ${{ secrets.ASSISTANT_APP_PRIVATE_KEY }}
-          # The assets repo holds walkthrough GIFs; see scripts/walkthrough.sh.
-          owner: ${{ github.repository_owner }}
-          repositories: ${{ github.event.repository.name }},${{ github.event.repository.name }}-assets
 
       - uses: actions/checkout@v4
         with:

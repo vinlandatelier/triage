@@ -1,10 +1,9 @@
 #!/usr/bin/env bash
-# walkthrough.sh <pr> <video>: turn a recording into a GIF, host it in the <repo>-assets repo, embed it in the PR body.
-# The GIFs live in their own repo so clones and CI checkouts of this one never download them.
+# walkthrough.sh <pr> <video>: turn a recording into a GIF, host it on refs/walkthroughs/<pr>, embed it in the PR body.
+# Clones and CI checkouts fetch only branches and tags, so GIFs on that ref never reach them.
 set -euo pipefail
 pr=$1 video=$2
 repo=${REPO:-$(gh repo view --json nameWithOwner --jq .nameWithOwner)}
-assets=${ASSETS_REPO:-$repo-assets}
 if ! command -v ffmpeg >/dev/null; then
   # Installed here, not in the workflow, so runs that record nothing skip the install.
   if command -v apt-get >/dev/null; then sudo apt-get update -qq && sudo apt-get install -qq -y ffmpeg
@@ -21,16 +20,22 @@ for w in 960 800 640 480; do
 done
 (( size < 10000000 )) || { echo "gif still ${size}B at 480px; record a shorter run" >&2; exit 1; }
 
-# A new file per recording: no sha to look up, and parallel lanes never collide.
-python3 - "$gif" "$tmp/put.json" "$pr" <<'PY'
-import base64, json, sys
-gif, out, pr = sys.argv[1:]
-json.dump({"message": f"walkthrough for #{pr}", "content": base64.b64encode(open(gif, "rb").read()).decode()}, open(out, "w"))
-PY
+# Plumbing instead of a checkout: no worktree and no local branch. Each recording is a new
+# file on top of the ref, so earlier PR bodies keep working and the push never needs force.
+ref=refs/walkthroughs/$pr
 path="pr/$pr/$(date +%s).gif"
-commit=$(gh api -X PUT "repos/$assets/contents/$path" --input "$tmp/put.json" --jq .commit.sha)
+for attempt in 1 2 3; do
+  rm -f "$tmp/idx"; base=""
+  if git fetch -q origin "$ref" 2>/dev/null; then base=$(git rev-parse FETCH_HEAD); GIT_INDEX_FILE=$tmp/idx git read-tree "$base"; fi
+  blob=$(git hash-object -w "$gif")
+  GIT_INDEX_FILE=$tmp/idx git update-index --add --cacheinfo "100644,$blob,$path"
+  tree=$(GIT_INDEX_FILE=$tmp/idx git write-tree)
+  commit=$(git commit-tree "$tree" ${base:+-p "$base"} -m "walkthrough for #$pr")
+  git push -q origin "$commit:$ref" 2> >(grep -v "^remote:" >&2) && break
+  [[ $attempt -eq 3 ]] && exit 1
+done
 
-url="https://raw.githubusercontent.com/$assets/$commit/$path"
+url="https://raw.githubusercontent.com/$repo/$commit/$path"
 gh pr view "$pr" -R "$repo" --json body --jq .body >"$tmp/body.md"
 python3 - "$tmp/body.md" "$url" <<'PY'
 import re, sys

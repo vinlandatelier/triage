@@ -63,8 +63,8 @@ for anything a recording cannot show. When it helps, without being asked:
    `bunx playwright install --with-deps chromium`. If the branch has no
    Playwright yet, run it ad hoc (`bunx playwright` or `npx playwright`). Never
    add it as a dependency for a walkthrough.
-3. `scripts/walkthrough.sh <pr> <video>` converts it to a GIF, hosts it in the
-   `triage-assets` repo, and embeds it under `## walkthrough` in the PR body.
+3. `scripts/walkthrough.sh <pr> <video>` converts it to a GIF, hosts it on
+   `refs/walkthroughs/<pr>`, and embeds it under `## walkthrough` in the PR body.
 4. Commit none of the temporary spec, config, or video.
 
 ## Review assistant

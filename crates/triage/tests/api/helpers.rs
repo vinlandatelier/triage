@@ -93,7 +93,7 @@ pub fn wait_for_line(
 pub struct TestApp {
     pub server: TestServer,
     pub store: Store,
-    #[allow(dead_code, reason = "held so the database outlives the store")]
+    /// Held so the database outlives the store.
     pub dir: TempDir,
 }
 

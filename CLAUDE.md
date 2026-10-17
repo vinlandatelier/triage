@@ -4,17 +4,97 @@ Local, single-binary life-admin agent. Rust daemon + CLI, React web UI, Discord
 as the mobile surface. Claude Code is the only model runtime, driven as a
 subprocess with the user's own login. No API keys.
 
+One crate, `crates/triage`, builds the `triage` binary. It serves the API and,
+in release, the embedded UI at `localhost:7311`. `web/` is a Vite SPA that talks
+to the API through a client generated from `crates/triage/openapi.json`.
+`docs/ARCHITECTURE.md` holds every rule and invariant; read it before a change.
+
+## Commands
+
+Fresh clone: `just setup && just check`. CI runs the same recipes.
+
+| command | when |
+|---|---|
+| `just setup` | first clone, or after a dev tool changes; safe to re-run |
+| `just dev` | serve the app at `localhost:7311` (Vite) with the daemon on 7312 |
+| `just check` | before every push; every gate below except `e2e` |
+| `just fix` | apply `cargo fmt` and Biome fixes |
+| `just fmt-check` / `clippy` / `check-layout` / `test` | one Rust gate on its own; `test` is nextest |
+| `just deny` / `machete` | after adding or removing a Rust dependency |
+| `just check-web` | every web gate: lint, typecheck, doctor, knip, test |
+| `just e2e` | Playwright against a fresh release build, after a UI flow changes |
+| `just build-web` / `build` | `web/dist/`, then the release binary with it embedded |
+| `just openapi` / `openapi-check` | after a route or response type changes |
+| `just gen-api` / `gen-api-check` | after `openapi.json` changes, regenerate `web/src/api/` |
+| `just db-prepare` / `db-prepare-check` | after a query or migration changes, regenerate `.sqlx/` |
+| `just db-schema` / `db-schema-check` | after a migration, regenerate `schema.sql` (run `db-prepare` first) |
+| `just skills-update` | pull upstream changes into vendored skills; never commits |
+| `just` (`default`) | list recipes |
+| `bun run dev` / `build` | Vite dev server / production build; `just dev` and `just build-web` call them |
+| `bun run lint` / `fix` | Biome check / Biome write |
+| `bun run typecheck` / `doctor` / `knip` / `test` | tsc, react-doctor, unused code, Vitest once |
+| `bun run e2e` | Playwright only; needs `target/release/triage`, so prefer `just e2e` |
+| `bun run gen:api` | same as `just gen-api`; runs `gen` in `tools/gen-api` |
+
+Root scripts forward to the same names in `web/package.json`.
+
+## Layout
+
+```
+crates/triage/src/          main.rs cli.rs config.rs error.rs telemetry http store
+crates/triage/src/features/ one dir per feature: mod http service repo model
+crates/triage/migrations/   forward-only SQL
+crates/triage/tests/api/    integration tests, one file per feature
+web/src/routes/             file-based routes, thin: loader + feature component
+web/src/features/<name>/    feature UI and its tests
+web/src/api/                generated client, never edited
+web/e2e/                    Playwright specs
+tools/gen-api/              hey-api generator (TypeScript 6)
+scripts/                    check-layout.sh claude-format.sh
+.claude/skills/             agent skills, see SOURCES.md
+```
+
+Copy `features/hello/` on both sides for a new feature.
+
+## Where to look
+
+- Logs: `triage logs path` prints today's JSONL file (`~/Library/Logs/triage/` on macOS). Every line carries `request_id`.
+- Data: `triage db sql "<query>"` (read-only, `--json` for rows as objects). `triage db schema` prints the live schema.
+- Schema: `crates/triage/schema.sql`. Read it instead of replaying migrations.
+- API: `crates/triage/openapi.json`, or Scalar at `/api/scalar` in a debug build.
+- Config: `triage config show` prints every `TRIAGE_*` var and path.
+- Rules, invariants, and why: `docs/ARCHITECTURE.md`.
+
+## Rules
+
+- Rust in `crates/triage`: follow the `rust-service-conventions` skill.
+- TypeScript in `web/`: follow the `web-conventions` skill.
+- `docs/ARCHITECTURE.md` wins over any skill. Update it in the PR that adds a module, invariant, or dependency.
+- Tooling changes update `just setup` in the same PR.
+- No dependency outside the allowlist in `docs/ARCHITECTURE.md` without asking.
+- Never hand-edit `web/src/api/`, `routeTree.gen.ts`, `openapi.json`, `schema.sql`, or `.sqlx/`.
+
+## Simplicity
+
+- No trait with a single implementation.
+- No `utils` module. Name the module after what it does.
+- No wrapper that only forwards a call.
+- No config for a value that never varies.
+- No generic before the second case exists.
+- Delete before abstracting.
+- Prefer a function to a one-method struct.
+- Prefer std to a dependency.
+
 ## Conventions
 
 - Commits and PR titles: Conventional Commits, `type(scope): imperative summary`.
 - One issue, one PR, branch named `<issue>-<slug>`, body contains `Closes #<issue>`.
   Chores with no issue use `<type>-<slug>`.
-- When a change depends on another unmerged PR, stack it with `gh stack` instead
-  of waiting or bundling. Prefer a stack of small PRs over one large PR whenever
-  the pieces are reviewable on their own.
+- Stack a change on an unmerged PR with `gh stack`; don't wait or bundle. Prefer
+  small stacked PRs whenever the pieces are reviewable on their own.
 - In a stack, change code from lower PRs only where your PR needs it. A defect
   in a lower PR gets fixed on that PR's branch, then restack.
-- Never push directly to `master`. Never merge; the maintainer merges.
+- Never push to `master` or merge; the maintainer merges.
 - The only rewrite of a pushed branch is a restack: `gh stack rebase`, then
   `gh stack push` (`--force-with-lease`). Never plain `--force`.
 - Stack operations go through `gh stack` only (`checkout`, `rebase`, `push`,
@@ -123,10 +203,8 @@ Reply style. The reader is scanning on a phone between other work.
 - Lead with the outcome in one line: what changed, or the answer.
 - One idea per sentence, under 20 words, active voice, named actor.
 - One term per concept. Concrete verbs. No hedging, no preamble, no closing line.
-- Bullets for parallel points, numbered list for sequences. No paragraphs over
-  two sentences.
-- `file:line` for every code reference. Code and commands in fenced blocks,
-  not in prose.
+- Bullets for parallel points, numbered lists for sequences. Paragraphs ≤ 2 sentences.
+- `file:line` for every code reference. Code and commands in fenced blocks.
 - Reviews: one line per finding, severity first, defect then fix. Skip
   strengths, context, and anything that is fine.
 - Hard cap: 8 lines unless the user asked for detail. If more is needed, give

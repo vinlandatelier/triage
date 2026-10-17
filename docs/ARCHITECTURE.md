@@ -33,9 +33,11 @@ triage/
     src/bin/gen_openapi.rs
     tests/api/           main.rs helpers.rs <feature>.rs
   web/
-    package.json vite.config.ts biome.json tsconfig.json env.ts index.html prek.toml
+    package.json vite.config.ts biome.json tsconfig.json env.ts index.html prek.toml components.json
     src/
-      main.tsx routeTree.gen.ts error.ts fallbacks.tsx
+      main.tsx routeTree.gen.ts error.ts fallbacks.tsx index.css
+      lib/utils.ts       cn()
+      components/        theme-provider.tsx theme-toggle.tsx
       routes/            file-based
       api/               hey-api output, never edited
       components/ui/     shadcn vendored
@@ -130,6 +132,10 @@ Routes register through `utoipa_axum::router::OpenApiRouter` in `http::router::r
 ## Web
 
 `web/` is a Vite SPA. Routing is TanStack Router with file-based routes in `web/src/routes/`. `@tanstack/router-plugin/vite` runs with `autoCodeSplitting` and sits before `react()` in `vite.config.ts`, after `ValidateEnv()`. It writes `web/src/routeTree.gen.ts` on every `vite dev` and `vite build`; the file is committed, never edited, and excluded from Biome (and from knip once it lands). `main.tsx` builds the router and registers its type. `routes/__root.tsx` is the shell: a header and `<Outlet/>`. `fallbacks.tsx` holds `NotFound` and `RouteError`; the root route uses them and `createRouter` sets them as `defaultNotFoundComponent` and `defaultErrorComponent`, so a child route's error or `notFound()` renders inside `<Outlet/>` and keeps the header. `RouteError` shows the message and the request id when there is one, and its retry calls `reset()` plus `router.invalidate()` so a failed loader runs again. `web/src/error.ts::describeError` reads a problem+json body (`detail`, then `title`, request id from `instance`) or an `Error` (`message`, `requestId`); empty strings count as missing.
+
+Styling is Tailwind 4 through `@tailwindcss/vite` (last in `plugins`) and shadcn v4 with Base UI (`components.json`, style `base-nova`). `src/index.css` holds the Tailwind imports and the shadcn theme variables; the `dark` variant matches `.dark` on `<html>`. Add a component with `bunx shadcn@latest add <name>` from `web/`; it lands in `src/components/ui/` and is then ours to edit. Imports use `@/` for `src/`, defined once in `tsconfig.json` `paths` and read by Vite through `resolve.tsconfigPaths`. Biome parses Tailwind directives (`css.parser.tailwindDirectives`). shadcn's generated `utils.ts` and font import were replaced with `clsx` + `tailwind-merge` and the system font, because `cn` and `@fontsource-variable/geist` are not allowlisted; re-check `package.json` after any `shadcn` command.
+
+Theme is `system | light | dark`, default `system`, stored in `localStorage` under `triage-theme`. An inline script in `index.html` sets `.light` or `.dark` before first paint; `components/theme-provider.tsx` (shadcn's Vite provider, with storage access in try/catch and a `matchMedia` listener so `system` follows the OS live) takes over after mount. The key lives in both files. `components/theme-toggle.tsx` cycles the three values from the header.
 
 ## Observability
 

@@ -1,6 +1,6 @@
 import type { ErrorComponentProps } from "@tanstack/react-router";
 import { Link, useRouter } from "@tanstack/react-router";
-import { describeError } from "./error";
+import { describeError } from "@/error";
 
 export function NotFound() {
   return (

@@ -15,7 +15,10 @@
     "exactOptionalPropertyTypes": true,
     "verbatimModuleSyntax": true,
     "noFallthroughCasesInSwitch": true,
-    "noImplicitOverride": true
+    "noImplicitOverride": true,
+    "paths": {
+      "@/*": ["./src/*"]
+    }
   },
   "include": ["src", "env.ts", "vite.config.ts"]
 }

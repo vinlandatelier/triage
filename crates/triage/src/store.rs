@@ -5,8 +5,10 @@ use std::path::PathBuf;
 use sqlx::migrate::MigrateError;
 
 mod pool;
+mod schema;
 
 pub use pool::{Store, open};
+pub use schema::dump as dump_schema;
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
@@ -18,6 +20,8 @@ pub enum Error {
     Migrate { name: String, source: MigrateError },
     #[error("cannot apply migrations: {0}")]
     Migrations(MigrateError),
+    #[error("cannot read the schema: {0}")]
+    Schema(sqlx::Error),
 }
 
 impl Error {

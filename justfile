@@ -151,6 +151,19 @@ test:
     bun run lint
     bun run typecheck
 
+# Regenerate crates/triage/schema.sql from a freshly migrated database.
+db-schema:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    dir="$(mktemp -d)"
+    trap 'rm -rf "$dir"' EXIT
+    cargo run --quiet --locked -- --data-dir "$dir" db schema > crates/triage/schema.sql.tmp
+    mv crates/triage/schema.sql.tmp crates/triage/schema.sql
+
+# Fail when crates/triage/schema.sql no longer matches the migrations.
+db-schema-check:
+    cargo nextest run --workspace --locked -E 'test(=schema::schema_dump_is_current)'
+
 # Apply automatic fixes.
 fix:
     cargo fmt --all

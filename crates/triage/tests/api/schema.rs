@@ -1,4 +1,5 @@
 use sqlx::SqlitePool;
+use triage::store;
 
 use crate::helpers::{TestResult, spawn_app};
 
@@ -91,6 +92,20 @@ async fn violations_flags_each_broken_rule() -> TestResult {
             "loose: not STRICT",
             "sqlitex: not STRICT",
         ]
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn schema_dump_is_current() -> TestResult {
+    let app = spawn_app().await?;
+    let fresh = store::dump_schema(&app.store.read).await?;
+    let path = concat!(env!("CARGO_MANIFEST_DIR"), "/schema.sql");
+    let committed = std::fs::read_to_string(path).unwrap_or_default();
+    pretty_assertions::assert_eq!(
+        committed,
+        fresh,
+        "{path} is stale: run `just db-schema` (left: committed, right: migrations)"
     );
     Ok(())
 }

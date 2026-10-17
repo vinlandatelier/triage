@@ -15,6 +15,7 @@ Every skill in this directory is vendored from a GitHub repo, pinned to the comm
 | vercel-react-best-practices | vercel-labs/agent-skills | skills/react-best-practices | 063bee94c3f4df8453406c830b0a7df0f2860278 | Vite SPA note in `SKILL.md` |
 | rust-best-practices | neoeinstein/claude-plugins | plugins/rust-best-practices/skills/rust-best-practices | 89fdbf3f47122d975ac9ded802b3c14d85909aee | `AppError` instead of `color_eyre`, unwrap/expect denied everywhere, facet and aliri_braid lines removed |
 | rust-skills | leonardomso/rust-skills | . | fd2a861ab0406a4ac536a55274d14ea6fd1ca9c9 | trimmed to `err- type- api- async- proj- name- test- obs- serde- lint- pat- anti-`, repo files and `checks/` dropped, see-also links to dropped rules removed, index regenerated, Cargo profile section dropped (`panic = "abort"` breaks `CatchPanicLayer`) |
+| gh-stack | github/gh-stack | skills/gh-stack | 29a36d314be664583705f18e41cebdf2b61ad514 | none |
 
 ## Updating
 

@@ -37,6 +37,15 @@ jobs:
           tool: just
       - run: just clippy
 
+  layout:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: just
+      - run: just check-layout
+
   deny:
     runs-on: ubuntu-latest
     steps:

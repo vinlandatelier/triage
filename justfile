@@ -132,13 +132,17 @@ setup:
     bun install --frozen-lockfile && prek install --install-hooks
 
 # Run every quality gate.
-check: fmt-check clippy deny machete db-prepare-check test check-web
+check: fmt-check clippy check-layout deny machete db-prepare-check test check-web
 
 fmt-check:
     cargo fmt --all --check
 
 clippy:
     cargo clippy --workspace --all-targets --locked -- -D warnings
+
+# Fail on any breach of the layout rules in docs/ARCHITECTURE.md.
+check-layout:
+    scripts/check-layout.sh
 
 deny:
     cargo deny check

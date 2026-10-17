@@ -21,11 +21,11 @@ export function RouteError({ error, reset }: ErrorComponentProps) {
     void router.invalidate();
   };
   return (
-    <section role="alert">
-      <h1>Something went wrong</h1>
-      <p>{message}</p>
+    <section role="alert" className="mx-auto flex max-w-md flex-col gap-2">
+      <h1 className="text-xl font-semibold">Something went wrong</h1>
+      <p className="text-muted-foreground">{message}</p>
       {requestId && (
-        <p>
+        <p className="text-sm text-muted-foreground">
           Request id: <code>{requestId}</code>
         </p>
       )}

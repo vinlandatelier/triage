@@ -4,12 +4,12 @@ use std::collections::HashSet;
 use std::fmt::{self, Write as _};
 use std::fs;
 use std::io::{self, IsTerminal};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use serde_json::{Map, Value};
-use time::OffsetDateTime;
 use time::format_description::BorrowedFormatItem;
 use time::macros::format_description;
+use time::{Date, OffsetDateTime};
 use tracing::field::{Field, Visit};
 use tracing::{Event, Subscriber, span};
 use tracing_appender::non_blocking::{NonBlockingBuilder, WorkerGuard};
@@ -28,6 +28,8 @@ mod columns;
 mod otel;
 
 const MAX_LOG_FILES: usize = 7;
+const FILE_PREFIX: &str = "triage";
+const FILE_SUFFIX: &str = "jsonl";
 
 // Fixed width so `ts` sorts as text; RFC 3339 trims trailing sub-second zeros.
 const TS_FORMAT: &[BorrowedFormatItem<'_>] =
@@ -145,6 +147,16 @@ fn stderr_layer(format: LogFormat, filter: EnvFilter) -> BoxedLayer {
     }
 }
 
+/// The JSONL file the daily appender writes to on `today`, which it reckons in UTC.
+pub fn log_file(logs: &Path, today: Date) -> PathBuf {
+    logs.join(format!(
+        "{FILE_PREFIX}.{:04}-{:02}-{:02}.{FILE_SUFFIX}",
+        today.year(),
+        u8::from(today.month()),
+        today.day()
+    ))
+}
+
 fn file_appender(dir: &Path) -> Result<RollingFileAppender, String> {
     // tracing-appender reports an unreadable or unwritable dir with its own stderr lines,
     // which would double the warning, so fail first with the real io error.
@@ -153,8 +165,8 @@ fn file_appender(dir: &Path) -> Result<RollingFileAppender, String> {
         .map_err(|err| err.to_string())?;
     RollingFileAppender::builder()
         .rotation(Rotation::DAILY)
-        .filename_prefix("triage")
-        .filename_suffix("jsonl")
+        .filename_prefix(FILE_PREFIX)
+        .filename_suffix(FILE_SUFFIX)
         .max_log_files(MAX_LOG_FILES)
         .build(dir)
         .map_err(|err| err.to_string())
@@ -554,6 +566,32 @@ mod tests {
         assert!(
             !names.contains(&"triage.2020-01-01.jsonl".to_owned()),
             "{names:?}"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn log_file_is_where_the_appender_writes() -> TestResult {
+        let tmp = tempfile::tempdir()?;
+        let before = OffsetDateTime::now_utc().date();
+        let _appender = file_appender(tmp.path())?;
+        let after = OffsetDateTime::now_utc().date();
+        assert!(
+            [before, after]
+                .iter()
+                .any(|day| log_file(tmp.path(), *day).is_file()),
+            "{:?}",
+            fs::read_dir(tmp.path())?.collect::<Vec<_>>()
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn log_file_pads_the_date() -> TestResult {
+        let day = Date::from_calendar_date(2026, time::Month::March, 5)?;
+        assert_eq!(
+            log_file(Path::new("/l"), day),
+            Path::new("/l/triage.2026-03-05.jsonl")
         );
         Ok(())
     }

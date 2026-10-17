@@ -85,7 +85,7 @@ pub enum LogFormat {
     Compact,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[derive(Clone, PartialEq, Eq, Deserialize)]
 #[serde(default)]
 pub struct Config {
     pub port: u16,
@@ -173,6 +173,29 @@ impl Config {
                 )
             })
             .collect()
+    }
+}
+
+// Manual so the startup log cannot leak `otel_endpoint` credentials through `Url`'s `Debug`.
+impl fmt::Debug for Config {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let Self {
+            port,
+            log_level,
+            log_file_level,
+            log_format,
+            otel_endpoint,
+        } = self;
+        f.debug_struct("Config")
+            .field("port", port)
+            .field("log_level", log_level)
+            .field("log_file_level", log_file_level)
+            .field("log_format", log_format)
+            .field(
+                "otel_endpoint",
+                &otel_endpoint.as_ref().map(redact_userinfo),
+            )
+            .finish()
     }
 }
 
@@ -542,6 +565,18 @@ mod tests {
     }
 
     #[test]
+    fn debug_redacts_endpoint_credentials() -> TestResult {
+        let config = Config {
+            otel_endpoint: Some(Url::parse("http://user:hunter2@host:4317")?),
+            ..Config::default()
+        };
+        let debug = format!("{config:?}");
+        assert!(!debug.contains("hunter2"), "{debug}");
+        assert!(!debug.contains("user"), "{debug}");
+        Ok(())
+    }
+
+    #[test]
     fn data_dir_puts_everything_under_it() -> TestResult {
         let tmp = tempfile::tempdir()?;
         let root = tmp.path().join("t");
@@ -645,6 +680,21 @@ mod tests {
         let message = err.to_string();
         assert!(message.contains(&data.display().to_string()), "{message}");
         assert!(message.contains("ermission denied"), "{message}");
+        Ok(())
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn read_only_logs_dir_is_left_to_telemetry() -> TestResult {
+        use std::os::unix::fs::PermissionsExt;
+
+        let tmp = tempfile::tempdir()?;
+        let paths = Paths::under(tmp.path().join("t"));
+        fs::create_dir_all(&paths.logs)?;
+        fs::set_permissions(&paths.logs, fs::Permissions::from_mode(0o500))?;
+        let result = paths.create();
+        fs::set_permissions(&paths.logs, fs::Permissions::from_mode(0o700))?;
+        result?;
         Ok(())
     }
 }

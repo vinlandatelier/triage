@@ -78,11 +78,11 @@ gh api repos/{owner}/{repo}/pulls/<n>/reviews --input review.json
 `review.json`: `commit_id` (PR head), `event`, `body`, and `comments` with
 `path`, `line`, `side: RIGHT`, `body`.
 
-- Each finding, nits included, is one inline comment on the line it is about,
-  in exactly this shape:
+- Each finding except a `❓` decision (§5), nits included, is one inline
+  comment on the line it is about, in exactly this shape:
 
   ````
-  🟠 **<the defect, at most 10 words>**
+  <severity from §4> **<the defect, at most 10 words>**
 
   <the concrete case that triggers it, one line, code in backticks>
 

@@ -91,13 +91,6 @@ jobs:
           if [ -z "$new" ]; then echo "mode=skip" >> "$GITHUB_OUTPUT"
           else { echo "mode=incremental"; echo "commits=$new"; } >> "$GITHUB_OUTPUT"; fi
 
-      # The skill comes from the default branch: a PR must not rewrite its own reviewer, and a
-      # long-lived feature branch picks up review-format changes without a rebase.
-      - if: steps.scope.outputs.mode != 'skip'
-        env:
-          MASTER: ${{ github.event.repository.default_branch }}
-        run: git show "origin/$MASTER:.claude/skills/pr-review/SKILL.md" > "$RUNNER_TEMP/pr-review.md"
-
       - if: steps.scope.outputs.mode != 'skip'
         uses: anthropics/claude-code-action@v1
         with:
@@ -106,7 +99,7 @@ jobs:
           # The assistant's own pushes (review fixes) need review too.
           allowed_bots: vinland-ai
           prompt: |
-            Review PR #${{ github.event.pull_request.number || inputs.pr }} following ${{ runner.temp }}/pr-review.md (the pr-review skill from the default branch).
+            Review PR #${{ github.event.pull_request.number || inputs.pr }} with the pr-review skill in .claude/skills/pr-review/SKILL.md.
             Mode: ${{ steps.scope.outputs.mode }}.${{ steps.scope.outputs.mode == 'incremental' && format(' Review only these new commits (git show each): {0}', steps.scope.outputs.commits) || '' }}
             Do not edit files or push.
           claude_args: >-

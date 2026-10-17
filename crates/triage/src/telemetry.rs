@@ -172,7 +172,7 @@ fn file_appender(dir: &Path) -> Result<RollingFileAppender, String> {
         .map_err(|err| err.to_string())
 }
 
-fn file_layer<S, W>(writer: W) -> impl Layer<S>
+pub(crate) fn file_layer<S, W>(writer: W) -> impl Layer<S>
 where
     S: Subscriber + for<'a> LookupSpan<'a>,
     W: for<'w> tracing_subscriber::fmt::MakeWriter<'w> + Send + Sync + 'static,

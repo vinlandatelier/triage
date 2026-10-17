@@ -14,6 +14,7 @@ use tokio::net::TcpListener;
 use crate::config::{Config, Paths};
 use crate::telemetry;
 
+mod middleware;
 mod router;
 mod state;
 

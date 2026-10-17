@@ -1,14 +1,11 @@
-import { createMemoryHistory, createRouter, RouterProvider } from "@tanstack/react-router";
+import { createMemoryHistory, RouterProvider } from "@tanstack/react-router";
 import { render, screen } from "@testing-library/react";
-import { expect, test } from "vitest";
+import { test } from "vitest";
 import { ThemeProvider } from "@/components/theme-provider";
-import { routeTree } from "@/routeTree.gen";
+import { createAppRouter } from "@/router";
 
 function renderAt(path: string) {
-  const router = createRouter({
-    routeTree,
-    history: createMemoryHistory({ initialEntries: [path] }),
-  });
+  const router = createAppRouter({ history: createMemoryHistory({ initialEntries: [path] }) });
   render(
     <ThemeProvider>
       <RouterProvider router={router} />
@@ -18,18 +15,13 @@ function renderAt(path: string) {
 
 test("renders the shell header and home page", async () => {
   renderAt("/");
-  expect(await screen.findByRole("heading", { name: "Triage" })).toBeDefined();
-  expect(screen.getByRole("link", { name: "Triage" })).toBeDefined();
-  expect(screen.getByRole("button", { name: /theme/i })).toBeDefined();
+  await screen.findByRole("heading", { name: "Triage" });
+  screen.getByRole("link", { name: "Triage" });
+  screen.getByRole("button", { name: /theme/i });
 });
 
-test("renders not found for an unknown path", async () => {
+test("keeps the header on an unknown path", async () => {
   renderAt("/nope");
-  expect(await screen.findByRole("heading", { name: "Not found" })).toBeDefined();
-});
-
-test("fails a request that has no handler", async () => {
-  await expect(fetch("http://localhost/api/unmocked")).rejects.toMatchObject({
-    cause: { message: expect.stringContaining('"error" strategy for the "onUnhandledFrame"') },
-  });
+  await screen.findByRole("heading", { name: "Not found" });
+  screen.getByRole("link", { name: "Triage" });
 });

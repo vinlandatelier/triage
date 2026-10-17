@@ -132,7 +132,7 @@ setup:
     bun install --frozen-lockfile && prek install --install-hooks
 
 # Run every quality gate.
-check: fmt-check clippy deny machete test
+check: fmt-check clippy deny machete test check-web
 
 fmt-check:
     cargo fmt --all --check
@@ -150,6 +150,9 @@ test:
     cargo nextest run --workspace --locked --no-tests=pass
     bun run lint
     bun run typecheck
+
+check-web:
+    bun run test
 
 # Regenerate crates/triage/schema.sql from a freshly migrated database.
 db-schema:

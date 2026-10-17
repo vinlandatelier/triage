@@ -1,3 +1,4 @@
+/// <reference types="vitest/config" />
 import { ValidateEnv } from "@julr/vite-plugin-validate-env";
 import tailwindcss from "@tailwindcss/vite";
 import { tanstackRouter } from "@tanstack/router-plugin/vite";
@@ -15,5 +16,9 @@ export default defineConfig({
   resolve: {
     // Reads the `@/*` alias from tsconfig.json, so there is one definition.
     tsconfigPaths: true,
+  },
+  test: {
+    environment: "jsdom",
+    setupFiles: ["./src/test/setup.ts"],
   },
 });

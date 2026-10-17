@@ -8,6 +8,7 @@ export PATH := env("HOME") + "/.cargo/bin:" + env("HOME") + "/.bun/bin:" + env("
 # just has no min-version setting. shell() rather than a backtick so --dry-run still evaluates it.
 _min_just := if semver_matches(shell(quote(just_executable()) + ' --version | cut -d" " -f2'), ">=1.42.0") == "true" { "" } else { error("just >= 1.42.0 is required") }
 
+[private]
 default:
     @{{ quote(just_executable()) }} --list
 
@@ -18,6 +19,7 @@ setup:
     os="$(uname -s)"
     failures=0
     logs="$(mktemp -d)"
+    trap 'rmdir "$logs" 2>/dev/null || true' EXIT
 
     report() { printf '%-16s %s\n' "$1" "$2"; }
     has() { command -v "$1" >/dev/null 2>&1; }
@@ -44,7 +46,7 @@ setup:
         if [ "$os" = Darwin ]; then
             brew install node@24
         else
-            local arch dist ver
+            local arch dist ver tmp
             arch="$(uname -m | sed 's/x86_64/x64/;s/aarch64/arm64/')"
             dist="https://nodejs.org/dist/latest-v24.x"
             tmp="$(mktemp -d)"
@@ -56,6 +58,9 @@ setup:
                 mkdir -p "$HOME/.local/share/node24" "$HOME/.local/bin" &&
                 tar -xJf "$tmp/$ver" --strip-components=1 -C "$HOME/.local/share/node24" &&
                 ln -sf "$HOME/.local/share/node24/bin/"{node,npm,npx} "$HOME/.local/bin/"
+            local rc=$?
+            rm -rf "$tmp"
+            return "$rc"
         fi
     }
 
@@ -102,7 +107,15 @@ setup:
     if ! has claude; then
         echo "warning: claude is not on PATH; install Claude Code to run the agent"
     fi
-    user_node="$(PATH={{ quote(user_path) }} command -v node 2>/dev/null || true)"
+    # Git hooks and plain shells use the user's PATH, not the one exported above.
+    user_path={{ quote(user_path) }}
+    for tool in cargo prek bun actionlint; do
+        dir="$(dirname "$(command -v "$tool" 2>/dev/null || echo /)")"
+        if has "$tool" && [[ ":$user_path:" != *":$dir:"* ]]; then
+            echo "warning: $tool is in $dir, which is not on your shell PATH"
+        fi
+    done
+    user_node="$(PATH="$user_path" command -v node 2>/dev/null || true)"
     if node24 && { [ -z "$user_node" ] || [ "$(node_major "$user_node")" != 24 ]; }; then
         echo "warning: node 24 is installed but your shell PATH does not resolve node to it; add $(dirname "$(command -v node)") to PATH"
     fi

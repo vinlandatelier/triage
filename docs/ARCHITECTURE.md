@@ -64,7 +64,7 @@ A rule that names a check (CI, `just`, prek) holds now; the check enforces it on
 2. Product code lives in `features/<name>/` with exactly `mod.rs http.rs service.rs repo.rs model.rs`. Infra stays top level. `just check-layout` checks the shape.
 3. Direction is `http → service → repo`. `http.rs` never imports `sqlx`; `repo.rs` never imports `axum`. `just check-layout` greps for it.
 4. All fallible code returns `crate::error::Result<T>`. `AppError` is the only error type that crosses a feature boundary. Startup code (`config`, `http::serve`, `cli`) keeps its own error types, which map to exit codes. `anyhow` only in `main.rs`, `cli.rs`, `build.rs`, and as the payload built for `AppError::Internal` (`anyhow!`, `.context()`).
-5. `unwrap`, `expect`, `dbg!`, `todo!`, `println!`, `eprintln!` are clippy-denied. `clippy.toml` allows all but `todo!` in tests. `?` and `tracing` instead. The one exception: `cli.rs` prints command output to stdout under `#[expect(clippy::print_stdout, reason = "CLI output")]`.
+5. `unwrap`, `expect`, `dbg!`, `todo!`, `println!`, `eprintln!` are clippy-denied. `clippy.toml` allows all but `todo!` in tests. `?` and `tracing` instead. `cli.rs` writes command output through `cli::emit`, which locks stdout, treats `BrokenPipe` (a closed reader such as `head`) as success, and exits 1 on any other write error.
 6. All SQL lives in `repo.rs`, through `sqlx` macros, offline data committed in `.sqlx/`. Migrations are forward-only `.sql` files applied at startup.
 7. Every path comes from `config::Paths`. No `~` or hardcoded dirs anywhere else.
 8. `std::env::var` appears only in `config.rs`, and `println!` only in `cli.rs`. `just check-layout` greps `crates/triage/src/` for both.

@@ -100,3 +100,46 @@ jobs:
         env:
           PR: ${{ github.event.pull_request.number || inputs.pr }}
         run: git push -q --force origin "HEAD:refs/ai-reviewed/$PR"
+
+      # Approvability: hard rules first, the model only when they all pass. The script and the
+      # skill come from master, because this checkout is the PR's code and must not judge itself.
+      - id: gate
+        if: steps.scope.outputs.mode != 'skip'
+        env:
+          GH_TOKEN: ${{ steps.app.outputs.token }}
+          PR: ${{ github.event.pull_request.number || inputs.pr }}
+          MASTER: ${{ github.event.repository.default_branch }}
+        run: |
+          git show "origin/$MASTER:scripts/approvability.py" > "$RUNNER_TEMP/approvability.py"
+          git show "origin/$MASTER:.claude/skills/pr-approvability/SKILL.md" > "$RUNNER_TEMP/approvability.md"
+          python3 "$RUNNER_TEMP/approvability.py" gate "$PR" "$RUNNER_TEMP/gate.json"
+
+      - if: steps.gate.outputs.pass == 'true'
+        uses: anthropics/claude-code-action@v1
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          github_token: ${{ steps.app.outputs.token }}
+          prompt: |
+            Decide whether PR #${{ github.event.pull_request.number || inputs.pr }} is approvable, following ${{ runner.temp }}/approvability.md.
+            The hard gate passed; its result is in ${{ runner.temp }}/gate.json.
+            Write your verdict to ${{ runner.temp }}/verdict.json. Do not post, edit files, or push.
+          claude_args: >-
+            --model claude-opus-5-5 --max-turns 60
+            --allowedTools "Bash,Read,Glob,Grep,Task"
+            --disallowedTools "Edit,Write,Bash(git push:*),Bash(gh pr merge:*),Bash(gh stack:*),Bash(gh api *merge*),Bash(gh pr review:*),Bash(gh pr comment:*)"
+
+      # Fails closed: a missing or malformed verdict posts as not approvable.
+      - if: ${{ !cancelled() && steps.gate.outcome == 'success' }}
+        env:
+          GH_TOKEN: ${{ steps.app.outputs.token }}
+          PR: ${{ github.event.pull_request.number || inputs.pr }}
+        run: |
+          gate=$RUNNER_TEMP/gate.json verdict=$RUNNER_TEMP/verdict.json final=$RUNNER_TEMP/final.json
+          if [ "$(jq -r .pass "$gate")" != true ]; then
+            cp "$gate" "$final"
+          elif jq -e '(.approvable | type) == "boolean" and (.reasons | type) == "array" and (.reasons | length) > 0' "$verdict" >/dev/null 2>&1; then
+            jq -s '.[1] + {sha: .[0].sha}' "$gate" "$verdict" > "$final"
+          else
+            jq '{sha, approvable: false, reasons: ["approvability check gave no verdict"]}' "$gate" > "$final"
+          fi
+          python3 "$RUNNER_TEMP/approvability.py" post "$PR" "$final"

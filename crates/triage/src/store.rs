@@ -5,10 +5,12 @@ use std::path::PathBuf;
 use sqlx::migrate::MigrateError;
 
 mod pool;
+mod query;
 mod schema;
 
-pub use pool::{Store, open};
-pub use schema::dump as dump_schema;
+pub use pool::{Store, migrate, open, open_read_only};
+pub use query::{Rows, run as query};
+pub use schema::{SCHEMA, dump as dump_schema};
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
@@ -22,6 +24,10 @@ pub enum Error {
     Migrations(MigrateError),
     #[error("cannot read the schema: {0}")]
     Schema(sqlx::Error),
+    #[error("cannot count applied migrations: {0}")]
+    Count(sqlx::Error),
+    #[error("query failed: {0}")]
+    Query(sqlx::Error),
 }
 
 impl Error {

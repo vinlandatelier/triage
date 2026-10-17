@@ -2,6 +2,9 @@ use sqlx::SqlitePool;
 
 use super::{Error, Result};
 
+/// `schema.sql` as of this build, so `triage db check` needs no source tree.
+pub const SCHEMA: &str = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/schema.sql"));
+
 /// The schema as `;`-terminated `CREATE` statements separated by blank lines.
 ///
 /// `.schema` order is not guaranteed, so this sorts by type then name for a stable diff.

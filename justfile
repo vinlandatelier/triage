@@ -29,10 +29,6 @@ fmt-check:
 clippy:
     cargo clippy --workspace --all-targets --locked -- -D warnings
 
-# Run every prek commit hook on the whole tree.
-hooks:
-    prek run --all-files
-
 # Fail on any breach of the layout rules in docs/ARCHITECTURE.md.
 check-layout:
     scripts/check-layout.sh
@@ -133,6 +129,10 @@ openapi-check:
 # Pull each skill in .claude/skills/SOURCES.md to upstream HEAD for review. Never commits.
 skills-update:
     @./scripts/skills-update.sh
+
+# Run the maintainer's private feature loop (.eng/ is gitignored).
+loop +args:
+    python3 .eng/loop/run.py {{args}}
 
 # Apply automatic fixes.
 fix:

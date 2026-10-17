@@ -17,124 +17,79 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  fmt:
+  changes:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 5
+    outputs:
+      rust: ${{ steps.filter.outputs.rust }}
+      web: ${{ steps.filter.outputs.web }}
+      workflows: ${{ steps.filter.outputs.workflows }}
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: taiki-e/install-action@v2
+      - uses: dorny/paths-filter@v3
+        id: filter
         with:
-          tool: just
-      - run: just fmt-check
+          # build.rs embeds web/dist, so web changes rebuild the crate; openapi.json feeds gen-api.
+          filters: |
+            rust:
+              - 'crates/**'
+              - 'Cargo.*'
+              - 'rust-toolchain.toml'
+              - 'deny.toml'
+              - '.cargo/**'
+              - 'justfile'
+              - 'scripts/**'
+              - 'web/**'
+              - '.github/workflows/ci.yml'
+            web:
+              - 'web/**'
+              - 'tools/**'
+              - 'crates/triage/openapi.json'
+              - 'package.json'
+              - 'bun.lock'
+              - '.bun-version'
+              - 'justfile'
+              - '.github/workflows/ci.yml'
+            workflows:
+              - '.github/**'
 
-  clippy:
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
-      - uses: taiki-e/install-action@v2
-        with:
-          tool: just
-      - run: just clippy
-
-  layout:
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    steps:
-      - uses: actions/checkout@v4
-      - uses: taiki-e/install-action@v2
-        with:
-          tool: just
-      - run: just check-layout
-
-  deny:
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: taiki-e/install-action@v2
-        with:
-          tool: just,cargo-deny
-      - run: just deny
-
-  machete:
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: taiki-e/install-action@v2
-        with:
-          tool: just,cargo-machete
-      - run: just machete
-
-  sqlx:
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
-      - uses: taiki-e/install-action@v2
-        with:
-          tool: just,sqlx-cli
-      - run: just db-prepare-check
-
-  hooks:
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
-      - uses: taiki-e/install-action@v2
-        with:
-          tool: just,cargo-nextest,prek@0.5.5
-      # Matches the actionlint rev in prek.toml; actionlint-system needs the binary on PATH.
-      - run: |
-          bash <(curl -sSfL https://raw.githubusercontent.com/rhysd/actionlint/v1.7.12/scripts/download-actionlint.bash) 1.7.12 "$RUNNER_TEMP"
-          echo "$RUNNER_TEMP" >> "$GITHUB_PATH"
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 24
-      - uses: oven-sh/setup-bun@v2
-        with:
-          bun-version-file: .bun-version
-      - run: bun install --frozen-lockfile
-      - run: just hooks
-
-  test:
-    needs: web
+  rust:
+    needs: changes
+    if: needs.changes.outputs.rust == 'true'
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest]
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 30
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - uses: taiki-e/install-action@v2
         with:
-          tool: just,cargo-nextest
-      - uses: actions/download-artifact@v4
-        with:
-          name: web-dist
-          path: web/dist/
+          tool: just,cargo-deny,cargo-machete,cargo-nextest,sqlx-cli
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version-file: .bun-version
       - run: bun install --frozen-lockfile
+      # build.rs needs web/dist to exist.
+      - run: just build-web
+      - run: just fmt-check
+      - run: just clippy
+      - run: just deny
+      - run: just machete
+      - run: just check-layout
+      - run: just db-prepare-check
+      - run: just db-schema-check
+      - run: just openapi-check
       - run: just test
 
   web:
+    needs: changes
+    if: needs.changes.outputs.web == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
       - uses: taiki-e/install-action@v2
@@ -159,9 +114,9 @@ jobs:
           retention-days: 7
 
   e2e:
-    needs: test
+    needs: [rust, web]
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -184,3 +139,25 @@ jobs:
         with:
           name: playwright-traces
           path: web/test-results/
+
+  workflows:
+    needs: changes
+    if: needs.changes.outputs.workflows == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      # Matches the actionlint rev in prek.toml.
+      - run: |
+          bash <(curl -sSfL https://raw.githubusercontent.com/rhysd/actionlint/v1.7.12/scripts/download-actionlint.bash) 1.7.12 "$RUNNER_TEMP"
+          "$RUNNER_TEMP/actionlint" -color
+
+  # The one required check. Skipped jobs pass; a failed or cancelled one fails it.
+  gate:
+    needs: [changes, rust, web, e2e, workflows]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - if: contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')
+        run: exit 1

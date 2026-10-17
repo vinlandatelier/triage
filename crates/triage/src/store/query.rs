@@ -99,7 +99,8 @@ fn real(value: f64) -> Value {
 }
 
 /// Counts the non-empty statements in `sql`, skipping `;` inside literals, quoted names,
-/// and comments the way SQLite's tokenizer does.
+/// and comments the way SQLite's tokenizer does. A trigger body's `;` counts as a split,
+/// which only rejects `CREATE TRIGGER`, a write the read-only connection refuses anyway.
 fn statements(sql: &str) -> usize {
     let mut count = 0;
     let mut open = false;
@@ -215,6 +216,10 @@ mod tests {
             ("SELECT 1 /* ; */ ; /* trailing */", 1),
             ("-- only a comment", 0),
             ("SELECT 1;SELECT 2", 2),
+            ("SELECT '--' ; SELECT 2", 2),
+            ("SELECT 'abc; SELECT 2", 1),
+            ("SELECT 1 /* x ; SELECT 2", 1),
+            ("CREATE TRIGGER t AFTER INSERT ON x BEGIN SELECT 1; END", 2),
         ] {
             assert_eq!(statements(sql), want, "{sql:?}");
         }

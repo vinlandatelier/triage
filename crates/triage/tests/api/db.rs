@@ -15,7 +15,9 @@ fn check_passes_on_a_freshly_migrated_db() -> TestResult {
     let tmp = tempfile::tempdir()?;
     let migrate = db(tmp.path(), &["migrate"])?;
     assert_eq!(migrate.status.code(), Some(0), "{migrate:?}");
-    assert_eq!(String::from_utf8(migrate.stdout)?, "applied 0 migrations\n");
+    assert!(String::from_utf8(migrate.stdout)?.starts_with("applied "));
+    let again = db(tmp.path(), &["migrate"])?;
+    assert_eq!(String::from_utf8(again.stdout)?, "applied 0 migrations\n");
     let check = db(tmp.path(), &["check"])?;
     assert_eq!(check.status.code(), Some(0), "{check:?}");
     assert_eq!(

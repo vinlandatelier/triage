@@ -101,7 +101,7 @@ a phone in five seconds:
 - **A (rec):** <option>. <why, one short clause>
 - **B:** <option>. <tradeoff, one short clause>
 
-Reply `A` or `B`.
+Reply `@abyan-cc A` or `@abyan-cc B`.
 ```
 
 Context is one line at most, each option one line, exactly one `(rec)`. Several

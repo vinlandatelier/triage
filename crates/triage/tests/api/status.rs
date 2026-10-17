@@ -14,14 +14,14 @@ fn status(dir: &Path, port: u16) -> std::io::Result<Output> {
 }
 
 #[test]
-fn reports_not_running_and_exits_1() -> TestResult {
+fn reports_not_running_and_exits_3() -> TestResult {
     let tmp = tempfile::tempdir()?;
     let port = TcpListener::bind((Ipv4Addr::LOCALHOST, 0))?
         .local_addr()?
         .port();
     let out = status(tmp.path(), port)?;
     assert_eq!(String::from_utf8(out.stdout)?, "not running\n");
-    assert_eq!(out.status.code(), Some(1));
+    assert_eq!(out.status.code(), Some(3));
     Ok(())
 }
 
@@ -38,7 +38,7 @@ fn another_service_on_the_port_is_not_running() -> TestResult {
     });
     let out = status(tmp.path(), port)?;
     assert_eq!(String::from_utf8(out.stdout)?, "not running\n");
-    assert_eq!(out.status.code(), Some(1));
+    assert_eq!(out.status.code(), Some(3));
     Ok(())
 }
 

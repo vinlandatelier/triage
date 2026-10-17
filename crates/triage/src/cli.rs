@@ -62,7 +62,7 @@ pub struct Cli {
 enum Command {
     /// Run the daemon in the foreground on `127.0.0.1:$TRIAGE_PORT`
     Serve,
-    /// Report whether the daemon is running; exits 1 when it is not
+    /// Report whether the daemon is running; exits 3 when it is not
     Status,
     /// Inspect the resolved configuration
     #[command(subcommand)]
@@ -185,7 +185,8 @@ fn write_out(out: &mut impl io::Write, text: &str) -> Result<(), Error> {
 fn status(port: u16) -> Result<ExitCode, Error> {
     let Some(health) = http::probe(port)? else {
         emit("not running\n")?;
-        return Ok(ExitCode::FAILURE);
+        // LSB `status` code for "not running", so scripts can tell it from a failed check.
+        return Ok(ExitCode::from(3));
     };
     emit(&format!(
         "running v{} on 127.0.0.1:{port}, up {}\n",

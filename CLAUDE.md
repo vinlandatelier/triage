@@ -50,6 +50,21 @@ it behind. Restack them:
 Never merge one branch into another to catch up (`git merge`, `git pull`): a
 merge commit stops `gh stack` from finding the old base for every PR above it.
 
+## Walkthroughs
+
+After pushing a change, decide whether a short recording would help the
+reviewer see it: new or changed screens, interactions, visible states. Skip it
+for anything a recording cannot show. When it helps, without being asked:
+
+1. Write a Playwright spec that clicks through the change in under 20 seconds.
+   Prefer an existing e2e spec. Record with video on and `slowMo` about 300 ms,
+   via a temporary config that extends the repo's.
+2. If the branch has no Playwright yet, run it ad hoc (`bunx playwright` or
+   `npx playwright`). Never add it as a dependency for a walkthrough.
+3. `scripts/walkthrough.sh <pr> <video>` converts it to a GIF, hosts it on the
+   `pr-assets` branch, and embeds it under `## walkthrough` in the PR body.
+4. Commit none of the temporary spec, config, or video.
+
 ## Review assistant
 
 When triggered from a PR comment: make the requested change on the PR branch,

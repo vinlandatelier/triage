@@ -7,6 +7,7 @@
     "build": "bun run --filter @triage/web build",
     "lint": "bun run --filter @triage/web lint",
     "fix": "bun run --filter @triage/web fix",
-    "typecheck": "bun run --filter @triage/web typecheck"
+    "typecheck": "bun run --filter @triage/web typecheck",
+    "test": "bun run --filter @triage/web test"
   }
 }

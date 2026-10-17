@@ -150,9 +150,9 @@ for anything a recording cannot show. When it helps, without being asked:
 Every push to a same-repo PR gets a review from the assistant, following
 `.claude/skills/pr-review/SKILL.md`. It reviews only the commits that are new
 since its last review, so a push that only squashes fixups reviews nothing.
-Every finding is an inline comment, nits included, severity first. Anything
-that needs a person is a `❓` decision; agents fixing review comments never
-act on a `❓` comment.
+Every finding is an inline comment, nits included, in the shape the skill
+defines. Anything that needs a person is a `❓` decision; agents fixing review
+comments never act on a `❓` comment.
 
 ## Asking for a decision
 
@@ -203,8 +203,9 @@ Reply style. The reader is scanning on a phone between other work.
 - One term per concept. Concrete verbs. No hedging, no preamble, no closing line.
 - Bullets for parallel points, numbered lists for sequences. Paragraphs ≤ 2 sentences.
 - `file:line` for every code reference. Code and commands in fenced blocks.
-- Reviews: one line per finding, severity first, defect then fix. Skip
-  strengths, context, and anything that is fine.
+- Reviews: each finding in the comment shape from
+  `.claude/skills/pr-review/SKILL.md`. Skip strengths, context, and anything
+  that is fine.
 - Hard cap: 8 lines unless the user asked for detail. If more is needed, give
   the 8 lines and offer to expand.
 - Ask at most one question, and only when the request is ambiguous.

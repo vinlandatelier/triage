@@ -78,9 +78,30 @@ gh api repos/{owner}/{repo}/pulls/<n>/reviews --input review.json
 `review.json`: `commit_id` (PR head), `event`, `body`, and `comments` with
 `path`, `line`, `side: RIGHT`, `body`.
 
-- Each finding, nits included, is an inline comment on the line it is about:
-  `<severity> <defect>. Fix: <fix>.` Add a GitHub `suggestion` block when the
-  fix is a pure replacement of the commented lines.
+- Each finding except a `❓` decision (§5), nits included, is one inline
+  comment on the line it is about, in exactly this shape:
+
+  ````
+  <severity from §4> **<the defect, at most 10 words>**
+
+  <the concrete case that triggers it, one line, code in backticks>
+
+  **Fix:** <the fix, one line>
+
+  <details><summary>evidence</summary>
+
+  <repro command and output, or the reasoning, only when there is some>
+  </details>
+  ````
+
+  When the fix is a pure replacement of the commented lines, a `suggestion`
+  block replaces the `**Fix:**` line.
+- The visible part is at most four short lines. Everything that proves the
+  finding goes in `evidence`, collapsed.
+- No first person ("I confirmed", "I checked"), no restating the diff, no
+  "this means", no closing remark. Name files as `path:line`.
+- One finding per comment. A second problem on the same line is a second
+  comment.
 - A finding goes in the top-level body only when no diff line can carry it.
 - `body` is at most three lines: the counts (`🔴 0 · 🟠 1 · 🟡 2 · ⚪ 1`), then
   one line on what matters most. No preamble, no praise, no restating the PR.

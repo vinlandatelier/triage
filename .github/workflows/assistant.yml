@@ -18,8 +18,8 @@ permissions:
 jobs:
   respond:
     if: >-
-      contains(github.event.comment.body, '@abyan-cc') ||
-      contains(github.event.review.body, '@abyan-cc')
+      contains(github.event.comment.body, '@vinland-ai') ||
+      contains(github.event.review.body, '@vinland-ai')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/create-github-app-token@v1
@@ -43,7 +43,7 @@ jobs:
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           github_token: ${{ steps.app.outputs.token }}
-          trigger_phrase: "@abyan-cc"
+          trigger_phrase: "@vinland-ai"
           claude_args: >-
             --model claude-opus-5-5 --max-turns 60
             --allowedTools "Bash,Edit,Write,Read,Glob,Grep"
@@ -56,7 +56,7 @@ jobs:
       github.event.comment.in_reply_to_id &&
       github.event.comment.user.type != 'Bot' &&
       contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association) &&
-      !contains(github.event.comment.body, '@abyan-cc')
+      !contains(github.event.comment.body, '@vinland-ai')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/create-github-app-token@v1
@@ -71,7 +71,7 @@ jobs:
           ROOT: ${{ github.event.comment.in_reply_to_id }}
         run: |
           author=$(gh api "repos/${{ github.repository }}/pulls/comments/$ROOT" --jq .user.login)
-          echo "ours=$([ "$author" = 'abyan-cc[bot]' ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
+          echo "ours=$([ "$author" = 'vinland-ai[bot]' ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
 
       - if: steps.root.outputs.ours == 'true'
         uses: actions/checkout@v4

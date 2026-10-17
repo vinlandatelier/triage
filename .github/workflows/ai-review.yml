@@ -57,7 +57,7 @@ jobs:
           full() { echo "mode=full" >> "$GITHUB_OUTPUT"; exit 0; }
           [ "$ACTION" = synchronize ] || full
           last=$(gh api "repos/${{ github.repository }}/pulls/$PR/reviews" \
-            --jq '[.[] | select(.user.login == "abyan-cc[bot]")] | last | .commit_id // empty')
+            --jq '[.[] | select(.user.login == "vinland-ai[bot]")] | last | .commit_id // empty')
           [ -n "$last" ] || full
           git fetch -q origin "$last" || full
           ids() { git log -p --format='commit %H' "$1" | git patch-id --stable; }

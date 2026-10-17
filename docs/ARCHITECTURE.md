@@ -12,6 +12,7 @@ The tree is the target layout. Files appear as the tickets that need them land.
 triage/
   Cargo.toml  rust-toolchain.toml  rustfmt.toml  deny.toml  bacon.toml  justfile
   package.json  bun.lock   bun workspace, member web/
+  .bun-version       bun version for CI and `just setup`
   prek.toml  renovate.json  .github/workflows/
   .cargo/config.toml   SQLX_OFFLINE=true
   scripts/           check-layout.sh
@@ -78,7 +79,7 @@ A rule that names a check (CI, `just`, prek) holds now; the check enforces it on
 
 ## Dev tools
 
-`just setup` installs or reports each one: rustup and the pinned toolchain, cargo-binstall, cargo-nextest, cargo-deny, cargo-machete, sqlx-cli, bacon, prek, bun, Node 24, actionlint. Cargo tools come from `cargo binstall`, falling back to `cargo install`. macOS uses Homebrew for the rest; Linux uses official installers or release binaries. It ends with `bun install` at the root and `prek install`, which installs the `pre-commit` and `commit-msg` hooks.
+`just setup` installs or reports each one: rustup and the pinned toolchain, cargo-binstall, cargo-nextest, cargo-deny, cargo-machete, sqlx-cli, bacon, prek, bun, Node 24, actionlint. Cargo tools come from `cargo binstall`, falling back to `cargo install`. macOS uses Homebrew for the rest; Linux uses official installers or release binaries. `.bun-version` pins bun: `just setup` installs that version when bun is missing and warns when the installed bun differs, and CI reads it through `oven-sh/setup-bun`. It ends with `bun install` at the root and `prek install`, which installs the `pre-commit` and `commit-msg` hooks.
 
 - `just` ≥ 1.42, enforced at the top of the `justfile`.
 - `bacon.toml` holds the watch jobs. `just dev` runs `run-server`.
@@ -171,11 +172,13 @@ Web tests run on Vitest with jsdom, configured in the `test` block of `web/vite.
 | edit hook | Claude Code PostToolUse on Edit/Write | `cargo fmt` or `biome check --write` on that file |
 | prek | commit | fmt, clippy, layout check, biome, react-doctor, schema and openapi drift, builtin file checks, actionlint, commitlint |
 | `just check` | agent before PR, human anytime | prek set + tsc, nextest, vitest, knip, cargo-deny, cargo-machete, sqlx offline check |
-| CI | PR | `just check` split into jobs, ubuntu + macos for nextest |
+| CI | PR | `just check` split into jobs, ubuntu + macos for nextest, plus `just build-web` |
 
 `scripts/check-layout.sh` enforces rules 2, 3, and 8. It prints `file: rule` per violation and exits 1 on any. It ignores `//` comments, so docs may name the forbidden items.
 
 `just check-web` runs `bun run lint`, `typecheck`, `doctor`, `knip`, and `test`, in that order. `doctor` is react-doctor with `-y --no-telemetry --blocking warning`, so a warning fails it. `web/doctor.config.ts` keeps the recommended rules and turns off the Socket.dev supply-chain scan, which makes one network request per dependency. react-doctor turns on its `tanstack-query` rules by itself once `@tanstack/react-query` is a dependency. `web/knip.json` adds `src/routes/**`, `env.ts`, and `doctor.config.ts` as entries; everything else is knip's zero-config defaults. When hey-api output lands in `src/api/`, add it to knip's `ignore`.
+
+The CI `web` job runs `bun install --frozen-lockfile`, `just check-web`, then `just build-web`, and uploads `web/dist/` as the `web-dist` artifact, kept 7 days, for jobs that embed the UI.
 
 prek runs `web/prek.toml` as a workspace project, found by discovery, with paths relative to `web/`. Its hooks run `biome check --write` on staged web files and `react-doctor --staged` when a staged file is `.tsx`. `tsc` is a `manual` stage hook (`prek run --stage manual tsc`) because it checks the whole project. After adding or moving a nested `prek.toml`, run `prek list --refresh`; prek caches the workspace layout.
 

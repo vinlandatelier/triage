@@ -103,7 +103,12 @@ setup:
     ensure bacon "has bacon" "$(brew_or bacon 'cargo_tool bacon')"
     ensure prek "has prek" \
         "$(brew_or prek 'curl --proto =https --tlsv1.2 -LsSf https://github.com/j178/prek/releases/latest/download/prek-installer.sh | sh -s -- --no-modify-path')"
-    ensure bun "has bun" "$(brew_or oven-sh/bun/bun 'curl -fsSL https://bun.sh/install | bash')"
+    # Not brew on macOS: brew cannot install the version pinned in .bun-version.
+    ensure bun "has bun" "curl -fsSL https://bun.sh/install | bash -s bun-v$(cat .bun-version)"
+    bun_ver="$(bun --version 2>/dev/null || true)"
+    if [ -n "$bun_ver" ] && [ "$bun_ver" != "$(cat .bun-version)" ]; then
+        echo "warning: bun is $bun_ver but .bun-version pins $(cat .bun-version); CI uses the pin"
+    fi
     ensure node24 node24 install_node24
     ensure actionlint "has actionlint" \
         "$(brew_or actionlint 'mkdir -p ~/.local/bin && bash <(curl -sSfL https://raw.githubusercontent.com/rhysd/actionlint/main/scripts/download-actionlint.bash) latest ~/.local/bin')"
@@ -159,6 +164,10 @@ check-web:
     bun run doctor
     bun run knip
     bun run test
+
+# Build the web UI into web/dist.
+build-web:
+    bun run build
 
 # Regenerate crates/triage/schema.sql from a freshly migrated database.
 db-schema:

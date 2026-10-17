@@ -91,6 +91,8 @@ jobs:
         with:
           tool: just,cargo-nextest
       - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: .bun-version
       - run: bun install --frozen-lockfile
       - run: just test
 
@@ -106,5 +108,14 @@ jobs:
         with:
           node-version: 24
       - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: .bun-version
       - run: bun install --frozen-lockfile
       - run: just check-web
+      - run: just build-web
+      - uses: actions/upload-artifact@v4
+        with:
+          name: web-dist
+          path: web/dist/
+          if-no-files-found: error
+          retention-days: 7

@@ -79,7 +79,7 @@ enum Command {
 
 #[derive(Debug, Subcommand)]
 enum LogsCommand {
-    /// Print the absolute path of today's JSONL log file, which may not exist yet
+    /// Print the absolute path of today's JSONL log file
     Path,
 }
 

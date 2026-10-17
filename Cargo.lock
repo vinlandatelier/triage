@@ -2600,6 +2600,7 @@ dependencies = [
  "url",
  "utoipa",
  "utoipa-axum",
+ "utoipa-scalar",
  "uuid",
 ]
 
@@ -2740,6 +2741,18 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 3.0.9",
+]
+
+[[package]]
+name = "utoipa-scalar"
+version = "0.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8eb5bc76936ceb2bb790a62bec7fb99e22b8ecffca739e3d5a5afec0081ea7f3"
+dependencies = [
+ "axum",
+ "serde",
+ "serde_json",
+ "utoipa",
 ]
 
 [[package]]

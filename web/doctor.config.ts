@@ -1,4 +1,4 @@
-import type { ReactDoctorConfig } from "react-doctor";
+import type { ReactDoctorConfig } from "react-doctor/api";
 
 // Rules run at their recommended defaults; tanstack-query rules switch on by themselves once
 // @tanstack/react-query is a dependency.

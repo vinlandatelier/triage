@@ -6,10 +6,15 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 publish.workspace = true
+default-run = "triage"
 
 [[bin]]
 name = "triage"
 path = "src/main.rs"
+
+[[bin]]
+name = "gen_openapi"
+path = "src/bin/gen_openapi.rs"
 
 [dependencies]
 anyhow = "1.0.104"
@@ -35,6 +40,8 @@ tracing-appender = "0.2.5"
 tracing-opentelemetry = { version = "0.34", default-features = false }
 tracing-subscriber = { version = "0.3.23", default-features = false, features = ["fmt", "env-filter", "ansi", "registry", "std"] }
 url = { version = "2.5.8", features = ["serde"] }
+utoipa = { version = "6.0.0", features = ["macros"] }
+utoipa-axum = "0.3.0"
 uuid = { version = "1.28.0", default-features = false, features = ["std", "v7"] }
 
 [dev-dependencies]

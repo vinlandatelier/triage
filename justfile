@@ -164,6 +164,18 @@ db-schema:
 db-schema-check:
     cargo nextest run --workspace --locked -E 'test(=schema::schema_dump_is_current)'
 
+# Regenerate crates/triage/openapi.json from the registered routes.
+openapi:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    trap 'rm -f crates/triage/openapi.json.tmp' EXIT
+    cargo run --quiet --locked --bin gen_openapi > crates/triage/openapi.json.tmp
+    mv crates/triage/openapi.json.tmp crates/triage/openapi.json
+
+# Fail when crates/triage/openapi.json no longer matches the code.
+openapi-check:
+    cargo nextest run --workspace --locked -E 'test(=openapi::openapi_spec_is_current)'
+
 # Apply automatic fixes.
 fix:
     cargo fmt --all

@@ -189,7 +189,9 @@ reply in a thread it started. Never merge, never touch `master`.
   a normal commit. Run the relevant checks before pushing.
 - `/vai squash`: a script, not the model. Folds `fixup!` commits into their
   slices on top of `origin/master`, pushes with `--force-with-lease`, replies
-  "ready to merge". A conflict aborts and names the slice.
+  "ready to merge". A conflict aborts and names the slice. Post it as a PR
+  comment, not inline; from an inline thread the assistant only replies
+  "post `/vai squash` as a PR comment".
 - Anything else: make the requested change on the PR branch, run the relevant
   checks, push (`fixup!` on a feature branch), and reply in the same thread.
 - A reply in a `❓` thread (`A`, `B`, or free text) is applied the same way.

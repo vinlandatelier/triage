@@ -109,6 +109,8 @@ jobs:
 
   e2e:
     needs: [rust, web]
+    # A skipped need would skip this job too; web is often skipped on a Rust-only change.
+    if: ${{ !cancelled() && needs.rust.result == 'success' && needs.web.result != 'failure' }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -134,6 +136,15 @@ jobs:
           name: playwright-traces
           path: web/test-results/
 
+  # The builtin prek file checks, for pushes made without local hooks (the assistant's).
+  files:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - run: curl --proto =https --tlsv1.2 -LsSf https://github.com/j178/prek/releases/latest/download/prek-installer.sh | sh -s -- --no-modify-path
+      - run: ~/.local/bin/prek run --all-files check-added-large-files check-case-conflict check-json check-merge-conflict check-toml check-yaml end-of-file-fixer mixed-line-ending trailing-whitespace
+
   workflows:
     needs: changes
     if: needs.changes.outputs.workflows == 'true'
@@ -148,7 +159,7 @@ jobs:
 
   # The one required check. Skipped jobs pass; a failed or cancelled one fails it.
   gate:
-    needs: [changes, rust, web, e2e, workflows]
+    needs: [changes, rust, web, e2e, files, workflows]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 2

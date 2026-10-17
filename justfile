@@ -131,6 +131,7 @@ skills-update:
     @./scripts/skills-update.sh
 
 # Run the maintainer's private feature loop (.eng/ is gitignored).
+[private]
 loop +args:
     python3 .eng/loop/run.py {{args}}
 

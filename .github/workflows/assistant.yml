@@ -18,7 +18,7 @@ permissions:
 jobs:
   respond:
     if: >-
-      !contains(github.event.comment.body, '/vai squash') &&
+      !(github.event_name == 'issue_comment' && contains(github.event.comment.body, '/vai squash')) &&
       (contains(github.event.comment.body, '@vinland-ai') || contains(github.event.review.body, '@vinland-ai') ||
        contains(github.event.comment.body, '/vinland-ai') || contains(github.event.review.body, '/vinland-ai') ||
        contains(github.event.comment.body, '/vai') || contains(github.event.review.body, '/vai'))

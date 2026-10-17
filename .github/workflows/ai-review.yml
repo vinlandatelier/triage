@@ -62,8 +62,9 @@ jobs:
 
       # Scope from refs/ai-reviewed/<pr>, the head of the last finished review. A review that
       # finds nothing posts nothing, so the bot's review list alone would lag behind. A commit
-      # counts as new only if its patch is not already in what was reviewed, so a push that only
-      # squashes fixup commits into their slices leaves nothing to review.
+      # counts as new only if its patch is not already in what was reviewed. A squash changes
+      # every folded slice's patch, so the whole-branch diff is compared first: unchanged means
+      # a pure squash or rebase, and nothing to review.
       - id: scope
         env:
           GH_TOKEN: ${{ steps.app.outputs.token }}
@@ -82,6 +83,8 @@ jobs:
             [ -n "$last" ] || full
             git fetch -q origin "$last" || full
           fi
+          whole() { git diff "origin/$BASE...$1" | git patch-id --stable | cut -d' ' -f1; }
+          [ "$(whole "$last")" != "$(whole HEAD)" ] || { echo "mode=skip" >> "$GITHUB_OUTPUT"; exit 0; }
           ids() { git log -p --format='commit %H' "$1" | git patch-id --stable; }
           new=$(awk 'NR == FNR { seen[$1] = 1; next } !seen[$1] { print $2 }' \
             <(ids "origin/master..$last") <(ids "origin/$BASE..HEAD") | tr '\n' ' ')

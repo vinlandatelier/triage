@@ -2,7 +2,15 @@
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "extends": ["config:recommended", "group:allNonMajor", "schedule:weekly"],
   "automerge": false,
+  "minimumReleaseAge": "3 days",
   "lockFileMaintenance": { "enabled": true },
+  "packageRules": [
+    {
+      "description": "@types/bun moves with .bun-version, by hand",
+      "matchPackageNames": ["@types/bun"],
+      "enabled": false
+    }
+  ],
   "customManagers": [
     {
       "customType": "regex",

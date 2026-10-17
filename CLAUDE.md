@@ -17,10 +17,12 @@ Fresh clone: `just setup && just check`. CI runs the same recipes.
 |---|---|
 | `just setup` | first clone, or after a dev tool changes; safe to re-run |
 | `just dev` | serve the app at `localhost:7311` (Vite) with the daemon on 7312 |
-| `just check` | before every push; every gate below except `e2e` |
+| `just check` | before every push; `check-api`, `deny`, `check-layout`, `check-web`, `gen-api-check`; no cargo |
 | `just fix` | apply `cargo fmt` and Biome fixes |
-| `just fmt-check` / `clippy` / `check-layout` / `test` | one Rust gate on its own; `test` is nextest |
-| `just deny` / `machete` | after adding or removing a Rust dependency |
+| `just check-layout` | the layout rules on `api/src/` |
+| `just fmt-check` / `clippy` / `test` | one Rust gate on its own, outside `just check`; `test` is nextest |
+| `just check-api` | every api gate: biome, tsc, bun test, knip |
+| `just deny` | after adding or removing a dependency: bun audit and the licence check |
 | `just check-web` | every web gate: lint, typecheck, doctor, knip, test |
 | `just e2e` | Playwright against a fresh release build, after a UI flow changes |
 | `just build-web` / `build` | `web/dist/`, then the release binary with it embedded |
@@ -69,6 +71,7 @@ Copy `features/hello/` on both sides for a new feature.
 ## Rules
 
 - Rust in `crates/triage`: follow the `rust-service-conventions` skill.
+- TypeScript in `api/`: follow the `api-conventions` skill.
 - TypeScript in `web/`: follow the `web-conventions` skill.
 - `docs/ARCHITECTURE.md` wins over any skill. Update it in the PR that adds a module, invariant, or dependency.
 - Tooling changes update `just setup` in the same PR.

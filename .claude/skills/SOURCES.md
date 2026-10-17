@@ -17,6 +17,7 @@ Every skill in this directory is vendored from a GitHub repo, pinned to the comm
 | rust-skills | leonardomso/rust-skills | . | fd2a861ab0406a4ac536a55274d14ea6fd1ca9c9 | trimmed to `err- type- api- async- proj- name- test- obs- serde- lint- pat- anti-`, repo files and `checks/` dropped, see-also links to dropped rules removed, index regenerated, Cargo profile section dropped (`panic = "abort"` breaks `CatchPanicLayer`), `err-anyhow-app`, `err-no-unwrap-prod`, and `err-expect-bugs-only` summaries rewritten to match docs/ARCHITECTURE.md rules 4 and 5 |
 | rust-service-conventions | local | - | - | written here, from `features/hello/` |
 | web-conventions | local | - | - | written here, from `web/src/features/hello/` |
+| api-conventions | local | - | - | written here; `api/src/features/hello/` becomes its worked example |
 | pr-review | local | - | - | written here, for the ai-review workflow |
 
 ## Updating

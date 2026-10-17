@@ -11,7 +11,8 @@ The tree is the target layout. Files appear as the slices that need them land.
 ```
 triage/
   Cargo.toml  rust-toolchain.toml  rustfmt.toml  deny.toml  bacon.toml  justfile
-  package.json  bun.lock   bun workspace, members web/ and tools/gen-api/
+  package.json  bun.lock   bun workspace, members api/, web/, and tools/gen-api/
+  bunfig.toml        exact installs, 3-day minimum release age
   .bun-version       bun version for CI and `just setup`
   prek.toml  renovate.json  .github/workflows/
   .cargo/config.toml   SQLX_OFFLINE=true
@@ -61,13 +62,13 @@ triage/
 A rule that names a check (CI, `just`, prek) holds now; the check enforces it once the slice that adds the check lands.
 
 1. One crate until a trigger fires: a heavy independent dependency set, a second binary, or incremental `cargo check` over 10 s. Then split the module into a new crate under `crates/<name>`.
-2. Product code lives in `features/<name>/` with exactly `mod.rs http.rs service.rs repo.rs model.rs`. Infra stays top level. `just check-layout` checks the shape.
-3. Direction is `http → service → repo`. `http.rs` never imports `sqlx`; `repo.rs` never imports `axum`. `just check-layout` greps for it.
+2. Product code lives in `features/<name>/` with exactly `mod.rs http.rs service.rs repo.rs model.rs`. Infra stays top level.
+3. Direction is `http → service → repo`. `http.rs` never imports `sqlx`; `repo.rs` never imports `axum`.
 4. All fallible code returns `crate::error::Result<T>`. `AppError` is the only error type that crosses a feature boundary. Startup code (`config`, `http::serve`, `cli`) keeps its own error types, which map to exit codes. `anyhow` only in `main.rs`, `cli.rs`, `build.rs`, and as the payload built for `AppError::Internal` (`anyhow!`, `.context()`).
 5. `unwrap`, `expect`, `dbg!`, `todo!`, `println!`, `eprintln!` are clippy-denied. `clippy.toml` allows all but `todo!` in tests. `?` and `tracing` instead. `cli.rs` writes command output through `cli::emit`, which locks stdout, treats `BrokenPipe` (a closed reader such as `head`) as success, and exits 1 on any other write error.
 6. All SQL lives in `repo.rs`, through `sqlx` macros, offline data committed in `.sqlx/`. Migrations are forward-only `.sql` files applied at startup.
 7. Every path comes from `config::Paths`. No `~` or hardcoded dirs anywhere else.
-8. `std::env::var` appears only in `config.rs`, and `println!` only in `cli.rs`. `just check-layout` greps `crates/triage/src/` for both.
+8. `std::env::var` appears only in `config.rs`, and `println!` only in `cli.rs`. `just check-layout` checks the TypeScript form of rules 2, 3, and 8 on `api/src/` (see API); the Rust tree is no longer checked.
 9. `triage serve` runs in the foreground, logs to stderr, exits cleanly on SIGTERM and SIGINT, holds a lock on the data dir. It never forks.
 10. The frontend never hand-writes a request type. Everything comes from `web/src/api/`, generated from `openapi.json`.
 11. Server state lives in TanStack Query. View state lives in the URL via TanStack Router. No global client store until a feature proves it needs one.
@@ -83,20 +84,47 @@ A rule that names a check (CI, `just`, prek) holds now; the check enforces it on
 
 ## Dev tools
 
-`just setup` installs or reports each one: rustup and the pinned toolchain, cargo-binstall, cargo-nextest, cargo-deny, cargo-machete, sqlx-cli, bacon, prek, bun, Node 24, actionlint. Cargo tools come from `cargo binstall`, falling back to `cargo install`. macOS uses Homebrew for the rest; Linux uses official installers or release binaries. `.bun-version` pins bun: `just setup` installs that version when bun is missing and warns when the installed bun differs, and CI reads it through `oven-sh/setup-bun`. It ends with `bun install` at the root, `bunx playwright install chromium` from `web/` (the root has no `node_modules/.bin`, so `bunx` there would fetch the latest Playwright instead of the pinned one), and `prek install`, which installs the `pre-commit` and `commit-msg` hooks.
+`just setup` installs or reports each one: rustup and the pinned toolchain, cargo-binstall, cargo-nextest, sqlx-cli, bacon, prek, bun, Node 24, actionlint. Cargo tools come from `cargo binstall`, falling back to `cargo install`. macOS uses Homebrew for the rest; Linux uses official installers or release binaries. `.bun-version` pins bun: `just setup` installs that version when bun is missing and warns when the installed bun differs, and CI reads it through `oven-sh/setup-bun`. It ends with `bun install` at the root, `bunx playwright install chromium` from `web/` (the root has no `node_modules/.bin`, so `bunx` there would fetch the latest Playwright instead of the pinned one), and `prek install`, which installs the `pre-commit` and `commit-msg` hooks.
 
 - `just` ≥ 1.42, enforced at the top of the `justfile`.
 - A `just` recipe longer than about 5 lines moves to `scripts/<recipe>.sh`; the recipe calls it. `scripts/setup.sh` and `scripts/skills-update.sh` follow this, and `just setup` passes the caller's own `PATH` as `TRIAGE_USER_PATH` so the script can warn about tools a plain shell would not find.
 - `bacon.toml` holds the watch jobs. `just dev` serves the app at `localhost:$TRIAGE_DEV_PORT` (default 7311). It first fails with "installed triage is running on 7311, stop it or set TRIAGE_DEV_PORT" when something answers on `127.0.0.1` at that port, because Vite may bind `::1` and miss it. Then it runs, in parallel, `bacon --headless run-server` with `TRIAGE_PORT=7312` and `bun run dev --port $TRIAGE_DEV_PORT`. `web/vite.config.ts` sets `strictPort` and proxies `/api` to `127.0.0.1:7312`; the port is fixed there because the config cannot read env without `@types/node`.
-- `prek.toml` holds the commit hooks. commitlint and its conventional config live in a prek-managed node env, not in `package.json`. actionlint, cargo, and `just` come from the system.
+- `prek.toml` holds the commit hooks. commitlint and its conventional config live in a prek-managed node env, not in `package.json`. actionlint and `just` come from the system.
 - `renovate.json` opens grouped non-major updates weekly, plus lock file maintenance. Regex custom managers bump the pins in `prek.toml`. Automerge is off.
 - `deny.toml` allows MIT, Apache-2.0, BSD-2-Clause, BSD-3-Clause, ISC, Unicode-3.0, MPL-2.0, Zlib, and crates.io as the only source.
+
+## API
+
+`api/` is the bun workspace `@triage/api`, the TypeScript port of `crates/triage`. It replaces the crate slice by slice; until the last slice, `crates/` stays on disk as the reference; no gate and no CI job builds it. `api/src/main.ts` runs the citty root command `triage`, whose `--version` reads `api/package.json`.
+
+```
+api/
+  package.json  tsconfig.json  biome.json  prek.toml
+  src/
+    main.ts  cli.ts  config.ts  error.ts  telemetry.ts
+    http/  store/
+    features/<name>/   model.ts repo.ts service.ts http.ts, plus *.test.ts
+```
+
+The Rust rules 2, 3, and 8 hold for `.ts`, and `just check-layout` checks `api/src/` only:
+
+- 2: `features/<name>/` holds exactly `model.ts repo.ts service.ts http.ts` plus `*.test.ts` files, nothing else.
+- 3: `http.ts` never imports `drizzle-orm` or `bun:sqlite`; `repo.ts` never imports `hono` or `@hono/*`.
+- 8: `process.env`, `Bun.env`, and `import.meta.env` appear only in `config.ts`; `console.` and `process.stdout` appear only in `cli.ts`.
+
+`api/tsconfig.json` sets `strict`, `noUncheckedIndexedAccess`, `exactOptionalPropertyTypes`, `noImplicitOverride`, `verbatimModuleSyntax`, `isolatedModules`, `erasableSyntaxOnly`, `module: "preserve"`, `noEmit`, `target: "es2022"`, `skipLibCheck`, `moduleDetection: "force"`, and `types: ["bun"]`, and nothing else. `skipLibCheck` is on because drizzle's `.d.ts` files fail without it. `@types/bun` is pinned to `.bun-version`, not to its latest release.
+
+`api/biome.json` runs `recommended` plus, at `error`: `noDefaultExport`, `noBarrelFile`, `noReExportAll`, `noEnum`, `noParameterAssign`, `noNonNullAssertion`, `useImportType`, `useNodejsImportProtocol`, `useNamingConvention`, `useFilenamingConvention` (kebab-case), `useAwait`, `noExcessiveCognitiveComplexity` (15), and the `types` domain with `noFloatingPromises` and `noMisusedPromises`. `noNamespaceImport` stays off, because `import * as schema` is Drizzle's idiom. Apart from that one, a rule turns off only by a per-file override that a tool requires. The `api-conventions` skill holds the idioms no tool checks.
+
+`bun test` runs the api tests, because vitest runs on Node and cannot import `bun:sqlite`. `bunfig.toml` sets `install.exact = true` and `install.minimumReleaseAge` to 3 days, so a malicious publish is usually yanked before it can install.
 
 ## Dependency allowlist
 
 Rust: tokio, axum, tower, tower-http, hyper, serde, serde_json, sqlx, utoipa, utoipa-axum, utoipa-scalar, tracing, tracing-subscriber, tracing-appender, tracing-opentelemetry, opentelemetry, opentelemetry_sdk, opentelemetry-otlp, figment, dotenvy, thiserror, anyhow, problem_details, clap, clap_complete, directories, rust-embed, mime_guess, ulid, time, uuid, url. Dev: axum-test, insta, tempfile, pretty_assertions, tokio-test.
 
 Web: react, react-dom, @tanstack/react-query, @tanstack/react-router, @tanstack/router-plugin, @hey-api/openapi-ts, zod, tailwindcss, shadcn and its vendored deps (`@base-ui/react`, `tw-animate-css`), class-variance-authority, clsx, tailwind-merge, lucide-react. Dev: vite, @vitejs/plugin-react, @tailwindcss/vite, typescript, @biomejs/biome, vitest, jsdom, @testing-library/react, @testing-library/dom, @testing-library/user-event, msw, @playwright/test, @julr/vite-plugin-validate-env, knip, react-doctor, ts-reset (`@total-typescript/ts-reset`), @types/react, @types/react-dom.
+
+API: citty. Dev: typescript, @biomejs/biome, knip, @types/bun, license-checker-rseidelsohn.
 
 ## Identifiers
 
@@ -130,7 +158,7 @@ On Linux, an unset XDG var falls back to `~/.local/share`, `~/.local/state`, or 
 
 `store::open(&Paths)` opens `Paths::db_file` (`<data>/triage.db`), creating it if missing, and returns `Store { read, write }`, two `SqlitePool`s on the same file. Every connection sets WAL, `synchronous=NORMAL`, `foreign_keys=ON`, `busy_timeout=5000`, and `temp_store=MEMORY`. The read pool holds up to `available_parallelism` connections with `query_only=ON`. The write pool holds one connection, so writers queue in the pool instead of contending for the file lock. Write through `Store::begin`, which issues `BEGIN IMMEDIATE`. `sqlx::migrate!()` embeds `crates/triage/migrations/` and runs on the write pool at open; `build.rs` reruns when that dir changes. sqlx runs each migration file in its own transaction, so a failure leaves earlier files applied. `crates/triage/schema.sql` holds the migrated schema: `SELECT sql FROM sqlite_schema WHERE sql NOT NULL AND name NOT GLOB 'sqlite_stat*' ORDER BY type DESC, name` (`ANALYZE` creates the `sqlite_stat*` tables at runtime), each statement ending in `;`, because `.schema` order is not stable. Read it instead of replaying migrations. `just db-schema` (`scripts/db-schema.sh`) builds the binary and runs `triage db schema` on a fresh temp data dir, from that dir with only `HOME` and `PATH` set, so no `.env` or caller `TRIAGE_*` or `OTEL_*` var reaches it. `schema::schema_dump_is_current` fails with a diff when `schema.sql` is stale, `schema::db_schema_prints_schema_sql` fails when the command's output differs from it, and prek runs that test through `just db-schema-check` when `migrations/` or `schema.sql` changes. Startup exits 1 naming the database path when the file cannot be opened or is not a database, naming the migration file when one fails, and naming the file and `checksum` when an applied migration was edited. A database with a migration this binary does not know (`store::Error::Newer`) exits 1 asking to upgrade triage.
 
-Queries go through `sqlx::query!`/`query_as!` in `repo.rs`, compiled against `crates/triage/.sqlx/`, which is committed so builds need no `DATABASE_URL`. `.cargo/config.toml` sets `SQLX_OFFLINE=true`, so the macros read `.sqlx/` even when `DATABASE_URL` is set; `cargo sqlx prepare` overrides it. A query with no entry in `.sqlx/` fails the build, but an entry left stale by a schema change still builds. `just db-prepare` regenerates it and `just db-prepare-check` (in `just check` and the CI `sqlx` job) fails when it is stale. Both migrate a temp database with sqlx-cli, not `triage db migrate`, because the crate cannot build while `.sqlx/` is stale. After adding a migration, run `just db-prepare` before `just db-schema`. Ids are ULID text through a per-feature newtype that implements `sqlx::Type` (`hello::model::HelloId`); select them with `id AS "id: HelloId"`. Timestamps are `time::OffsetDateTime` in UTC, written by `repo.rs` as fixed-width `YYYY-MM-DDTHH:MM:SS.mmmZ` so text order is time order (sqlx's own RFC 3339 encoding drops trailing subsecond zeros), and read back through sqlx's `time` feature. Services truncate `now` to milliseconds so a returned row equals the stored one.
+Queries go through `sqlx::query!`/`query_as!` in `repo.rs`, compiled against `crates/triage/.sqlx/`, which is committed so builds need no `DATABASE_URL`. `.cargo/config.toml` sets `SQLX_OFFLINE=true`, so the macros read `.sqlx/` even when `DATABASE_URL` is set; `cargo sqlx prepare` overrides it. A query with no entry in `.sqlx/` fails the build, but an entry left stale by a schema change still builds. `just db-prepare` regenerates it and `just db-prepare-check` fails when it is stale. Both migrate a temp database with sqlx-cli, not `triage db migrate`, because the crate cannot build while `.sqlx/` is stale. After adding a migration, run `just db-prepare` before `just db-schema`. Ids are ULID text through a per-feature newtype that implements `sqlx::Type` (`hello::model::HelloId`); select them with `id AS "id: HelloId"`. Timestamps are `time::OffsetDateTime` in UTC, written by `repo.rs` as fixed-width `YYYY-MM-DDTHH:MM:SS.mmmZ` so text order is time order (sqlx's own RFC 3339 encoding drops trailing subsecond zeros), and read back through sqlx's `time` feature. Services truncate `now` to milliseconds so a returned row equals the stored one.
 
 ## Features
 
@@ -179,26 +207,28 @@ Web tests run on Vitest with jsdom, configured in the `test` block of `web/vite.
 | layer | trigger | runs |
 |---|---|---|
 | edit hook | Claude Code PostToolUse on Edit/Write | `rustfmt` or `biome check --write` on that file |
-| prek | commit | fmt, clippy, layout check, biome, react-doctor, schema, openapi, and api client drift, builtin file checks, actionlint, commitlint |
-| `just check` | agent before PR, human anytime | fmt, clippy, layout, biome, react-doctor, schema, openapi + tsc, nextest, vitest, knip, cargo-deny, cargo-machete, sqlx offline check, api client drift |
-| CI | PR | `rust` (ubuntu + macos) and `web` jobs run the `just check` recipes, then `e2e`; `gate` is the one required check |
+| prek | commit | layout check, biome (api and web), react-doctor, api client drift, builtin file checks, actionlint, commitlint |
+| `just check` | agent before PR, human anytime | `check-api` (biome, tsc, bun test, knip), `deny` (bun audit, licences), layout, then `check-web` (biome, tsc, react-doctor, knip, vitest) and api client drift; no cargo command |
+| CI | PR | `api` and `web` jobs run the `just check` recipes; `gate` is the one required check |
 
-`scripts/check-layout.sh` enforces rules 2, 3, and 8. It prints `file: rule` per violation and exits 1 on any. It ignores `//` comments, so docs may name the forbidden items.
+`scripts/check-layout.sh` enforces rules 2, 3, and 8 on `api/src/` (see API). It prints `file: rule <n>` per violation and exits 1 on any. It ignores `//` comments, so docs may name the forbidden items; a `/* */` or JSDoc comment that names one still fails.
 
-`.claude/settings.json` runs `scripts/claude-format.sh` after every Edit or Write. The script reads `tool_input.file_path` from the hook JSON with `sed`, since `jq` is not a dev tool. A `.rs` file goes through `rustfmt` alone, because `cargo fmt` reformats the whole workspace. A `.ts`, `.tsx`, `.js`, `.jsx`, `.json`, or `.css` file under `web/` goes through `web/node_modules/.bin/biome check --write`, run from `web/`; `bunx` is avoided because it downloads biome when it is missing. The script prints nothing and always exits 0. A missing formatter prints one `systemMessage` per tool per session, tracked by a marker file in `$TMPDIR`.
+`.claude/settings.json` runs `scripts/claude-format.sh` after every Edit or Write. The script reads `tool_input.file_path` from the hook JSON with `sed`, since `jq` is not a dev tool. A `.rs` file goes through `rustfmt` alone, because `cargo fmt` reformats the whole workspace. A `.ts`, `.tsx`, `.js`, `.jsx`, `.json`, or `.css` file under `web/`, or a `.ts`, `.js`, or `.json` file under `api/`, goes through that package's `node_modules/.bin/biome check --write`, run from the package dir; `bunx` is avoided because it downloads biome when it is missing. The script prints nothing and always exits 0. A missing formatter prints one `systemMessage` per tool per session, tracked by a marker file in `$TMPDIR`.
+
+`just check-api` runs `bun run lint`, `typecheck`, `test`, and `knip` in `api/`. `just deny` runs `bun audit --prod --audit-level=high` in `api/`, which prints each advisory and fails on any high or critical one, then `license-checker-rseidelsohn --production --excludePrivatePackages --onlyAllow` over api production dependencies with the list in `deny.toml`, which names the first package outside it. No advisory is ignored without asking. knip covers unused dependencies, so there is no `machete` recipe.
 
 `just check-web` runs `bun run lint`, `typecheck`, `doctor`, `knip`, and `test`, in that order. `doctor` is react-doctor with `-y --no-telemetry --blocking warning`, so a warning fails it. `web/doctor.config.ts` keeps the recommended rules and turns off the Socket.dev supply-chain scan, which makes one network request per dependency. react-doctor turns on its `tanstack-query` rules by itself once `@tanstack/react-query` is a dependency. `web/knip.json` adds `src/routes/**/*.tsx`, `env.ts`, and `doctor.config.ts` as entries; everything else is knip's zero-config defaults. `src/api/**` is in knip's `ignore`.
 
-CI has three real jobs plus plumbing. `changes` (dorny/paths-filter) decides which run: `rust` on any Rust, web, script, or justfile change (build.rs embeds `web/dist`, so web changes rebuild the crate), `web` on any web, generator, or `openapi.json` change, `workflows` (actionlint) on `.github/` changes, and `files` (the builtin prek file checks) on every push, for commits made without local hooks. `rust` runs on ubuntu and macos: `bun install` and `just build-web` first so `build.rs` finds `web/dist/`, then `fmt-check`, `clippy`, `deny`, `machete`, `check-layout`, `db-prepare-check`, `db-schema-check`, `openapi-check`, `test`. `web` runs `just check-web`, `just gen-api-check`, and `just build-web`. `gate` needs every job with `if: always()` and fails on any failed or cancelled one; branch protection requires only `gate`, so jobs can be added or path-skipped without touching the rule. `ai-review` and `assistant` are not checks.
+CI has two real jobs plus plumbing. `changes` (dorny/paths-filter) decides which run: `api` on any api, script, bun config, or justfile change, `web` on any web, generator, or `openapi.json` change, `workflows` (actionlint) on `.github/` changes, and `files` (the builtin prek file checks) on every push, for commits made without local hooks. `api` runs on ubuntu: `bun install --frozen-lockfile`, then `check-api`, `deny`, `check-layout`. No job builds Rust, and no job runs e2e until the TypeScript executable exists. `web` runs `just check-web`, `just gen-api-check`, and `just build-web`. `gate` needs every job with `if: always()` and fails on any failed or cancelled one; branch protection requires only `gate`, so jobs can be added or path-skipped without touching the rule. `ai-review` and `assistant` are not checks.
 
-`just e2e` runs `just build`, then Playwright (`bun run e2e`) on Chromium only. Playwright needs Node 24, not bun. `web/playwright.config.ts` starts `target/release/triage serve` as its `webServer` on port 7313, off 7311 and 7312 so a running daemon does not collide, with `--data-dir` set to a fresh `mktemp -d` so every run starts with an empty database. It waits on `/health` and never reuses a running server. Specs live in `web/e2e/*.spec.ts`; Vitest's `include` is limited to `src/**/*.test.{ts,tsx}` so it skips them. `just check` does not run e2e. The CI `e2e` job needs `rust` and `web`, installs Node 24 and Chromium with its system deps, runs `just e2e`, and uploads `web/test-results/` (traces kept on failure) when it fails.
+`just e2e` runs `just build`, then Playwright (`bun run e2e`) on Chromium only. Playwright needs Node 24, not bun. `web/playwright.config.ts` starts `target/release/triage serve` as its `webServer` on port 7313, off 7311 and 7312 so a running daemon does not collide, with `--data-dir` set to a fresh `mktemp -d` so every run starts with an empty database. It waits on `/health` and never reuses a running server. Specs live in `web/e2e/*.spec.ts`; Vitest's `include` is limited to `src/**/*.test.{ts,tsx}` so it skips them. `just check` does not run e2e, and CI does not run it yet.
 
 `just gen-api-check` regenerates `web/src/api/` and fails when the result differs from the git index or adds untracked files, so staged output passes. prek runs it when `openapi.json`, `tools/gen-api/`, or `web/src/api/` changes.
 
-prek runs `web/prek.toml` as a workspace project, found by discovery, with paths relative to `web/`. Its hooks run `biome check --write` on staged web files and `react-doctor --staged` when a staged file is `.tsx`. `tsc` is a `manual` stage hook (`prek run --stage manual tsc`) because it checks the whole project. After adding or moving a nested `prek.toml`, run `prek list --refresh`; prek caches the workspace layout.
+prek runs `api/prek.toml` and `web/prek.toml` as workspace projects, found by discovery, with paths relative to their dir. `api/prek.toml` runs `biome check --write` on staged api files; the root `check-layout` hook runs when `api/src/` changes. The web hooks run `biome check --write` on staged web files and `react-doctor --staged` when a staged file is `.tsx`. `tsc` is a `manual` stage hook (`prek run --stage manual tsc`) because it checks the whole project. After adding or moving a nested `prek.toml`, run `prek list --refresh`; prek caches the workspace layout.
 
 ## Agent skills
 
 `.claude/skills/` holds third-party skills, one directory each, vendored with `npx skills add` and pinned in `.claude/skills/SOURCES.md` (repo, path, commit, local edits). Local edits adapt them to these rules: `rust-best-practices` uses `AppError` and drops facet and aliri_braid, `rust-skills` keeps only the `err- type- api- async- proj- name- test- obs- serde- lint- pat- anti-` rules, and the two Vercel skills skip server-rendering rules because the web app is a Vite SPA. Where a skill disagrees with this file, this file wins. `just skills-update` applies each upstream diff since the pinned commit onto the vendored copy and bumps the commit; it never commits, and a patch that hits a local edit leaves `.rej` files to resolve by hand. Every skill directory must have a row in `SOURCES.md`.
 
-Two skills are written here, with `local` rows that `just skills-update` skips. `rust-service-conventions` walks `features/hello/` file by file, with the `AppError` table, span rules, utoipa placement, and the regenerate commands for each change. `web-conventions` covers `src/api/`, the regenerate flow, the generated query factories, URL state, and the type rules. When this file changes a rule they show, update them in the same PR.
+Three skills are written here, with `local` rows that `just skills-update` skips. `api-conventions` holds the one way to write each thing in `api/` (errors, types, modules, async, validation, security, tests, logging), with a one-line reason per rule; `api/src/features/hello/` becomes its worked example when it lands. `rust-service-conventions` walks `features/hello/` file by file, with the `AppError` table, span rules, utoipa placement, and the regenerate commands for each change. `web-conventions` covers `src/api/`, the regenerate flow, the generated query factories, URL state, and the type rules. When this file changes a rule they show, update them in the same PR.

@@ -13,15 +13,12 @@ concurrency:
 permissions:
   contents: read
 
-env:
-  CARGO_TERM_COLOR: always
-
 jobs:
   changes:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     outputs:
-      rust: ${{ steps.filter.outputs.rust }}
+      api: ${{ steps.filter.outputs.api }}
       web: ${{ steps.filter.outputs.web }}
       workflows: ${{ steps.filter.outputs.workflows }}
     steps:
@@ -29,17 +26,16 @@ jobs:
       - uses: dorny/paths-filter@v3
         id: filter
         with:
-          # build.rs embeds web/dist, so web changes rebuild the crate; openapi.json feeds gen-api.
+          # openapi.json feeds gen-api.
           filters: |
-            rust:
-              - 'crates/**'
-              - 'Cargo.*'
-              - 'rust-toolchain.toml'
-              - 'deny.toml'
-              - '.cargo/**'
-              - 'justfile'
+            api:
+              - 'api/**'
               - 'scripts/**'
-              - 'web/**'
+              - 'package.json'
+              - 'bun.lock'
+              - 'bunfig.toml'
+              - '.bun-version'
+              - 'justfile'
               - '.github/workflows/ci.yml'
             web:
               - 'web/**'
@@ -47,43 +43,34 @@ jobs:
               - 'crates/triage/openapi.json'
               - 'package.json'
               - 'bun.lock'
+              - 'bunfig.toml'
               - '.bun-version'
               - 'justfile'
               - '.github/workflows/ci.yml'
             workflows:
               - '.github/**'
 
-  rust:
+  api:
     needs: changes
-    if: needs.changes.outputs.rust == 'true'
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, macos-latest]
-    runs-on: ${{ matrix.os }}
-    timeout-minutes: 20
+    if: needs.changes.outputs.api == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
       - uses: taiki-e/install-action@v2
         with:
-          tool: just,cargo-deny,cargo-machete,cargo-nextest,sqlx-cli
+          tool: just
+      # tsc, knip, and the licence checker are node scripts; match the Node 24 that `just setup` installs.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version-file: .bun-version
       - run: bun install --frozen-lockfile
-      # build.rs needs web/dist to exist.
-      - run: just build-web
-      - run: just fmt-check
-      - run: just clippy
+      - run: just check-api
       - run: just deny
-      - run: just machete
       - run: just check-layout
-      - run: just db-prepare-check
-      - run: just db-schema-check
-      - run: just openapi-check
-      - run: just test
 
   web:
     needs: changes
@@ -106,35 +93,6 @@ jobs:
       - run: just check-web
       - run: just gen-api-check
       - run: just build-web
-
-  e2e:
-    needs: [rust, web]
-    # A skipped need would skip this job too; web is often skipped on a Rust-only change.
-    if: ${{ !cancelled() && needs.rust.result == 'success' && needs.web.result != 'failure' }}
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
-      - uses: taiki-e/install-action@v2
-        with:
-          tool: just
-      - uses: oven-sh/setup-bun@v2
-        with:
-          bun-version-file: .bun-version
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 24
-      - run: bun install --frozen-lockfile
-      - run: bunx playwright install --with-deps chromium
-        working-directory: web
-      - run: just e2e
-      - uses: actions/upload-artifact@v4
-        if: failure()
-        with:
-          name: playwright-traces
-          path: web/test-results/
 
   # The builtin prek file checks, for pushes made without local hooks (the assistant's).
   files:
@@ -159,7 +117,7 @@ jobs:
 
   # The one required check. Skipped jobs pass; a failed or cancelled one fails it.
   gate:
-    needs: [changes, rust, web, e2e, files, workflows]
+    needs: [changes, api, web, files, workflows]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 2

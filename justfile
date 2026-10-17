@@ -19,7 +19,15 @@ setup:
     @TRIAGE_USER_PATH={{ quote(user_path) }} ./scripts/setup.sh
 
 # Run every quality gate.
-check: fmt-check clippy check-layout deny machete db-prepare-check test check-web gen-api-check
+check: check-api deny check-layout check-web gen-api-check
+
+# Lint, typecheck, and test the api package.
+[working-directory('api')]
+check-api:
+    bun run lint
+    bun run typecheck
+    bun run test
+    bun run knip
 
 # Check Rust formatting.
 fmt-check:
@@ -33,13 +41,11 @@ clippy:
 check-layout:
     scripts/check-layout.sh
 
-# Check licenses, advisories, bans, and sources.
+# Fail on a high advisory or a licence outside docs/ARCHITECTURE.md in api production dependencies.
+[working-directory('api')]
 deny:
-    cargo deny check
-
-# Find unused Rust dependencies.
-machete:
-    cargo machete
+    bun audit --prod --audit-level=high
+    bun run licenses --production --excludePrivatePackages --onlyAllow 'MIT;Apache-2.0;BSD-2-Clause;BSD-3-Clause;ISC;Unicode-3.0;MPL-2.0;Zlib' --summary
 
 # Run the Rust tests.
 test:
@@ -138,6 +144,7 @@ loop +args:
 # Apply automatic fixes.
 fix:
     cargo fmt --all
+    cd api && bun run fix
     bun run fix
 
 # Serve the app at localhost:$TRIAGE_DEV_PORT (default 7311): Vite for the UI, proxying /api to the daemon on 7312.

@@ -19,8 +19,8 @@ features/<name>/
 ```
 
 - Calls go `http → service → repo`. `model` is shared by all three.
-- `http.rs` never names `sqlx`. `repo.rs` never names `axum`. `just check-layout` greps for both.
-- A feature dir holds exactly those five files. A sixth file fails `just check-layout`. Put helpers in the file that owns the layer.
+- `http.rs` never names `sqlx`. `repo.rs` never names `axum`.
+- A feature dir holds exactly those five files. Put helpers in the file that owns the layer.
 - `mod.rs` keeps `repo` private: `mod repo;`, `pub mod http; pub mod model; pub mod service;`.
 - Register the feature once in `features/mod.rs`: `.merge(<name>::http::routes())`.
 

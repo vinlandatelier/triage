@@ -1,15 +1,15 @@
 #!/usr/bin/env bash
-# Enforces the layout rules in docs/ARCHITECTURE.md. Prints `file: rule` per violation.
+# Enforces rules 2, 3, and 8 of docs/ARCHITECTURE.md on api/src. Prints `file: rule <n>` per violation.
 set -uo pipefail
 
 cd "$(dirname "$0")/.." || exit
-src=crates/triage/src
+src=api/src
 features="$src/features"
-expected="http.rs mod.rs model.rs repo.rs service.rs"
+expected="http.ts model.ts repo.ts service.ts"
 failed=0
 
 violation() {
-    echo "$1: $2"
+    echo "$1: rule $2"
     failed=1
 }
 
@@ -23,30 +23,31 @@ for dir in "$features"/*/; do
     [ -d "$dir" ] || continue
     dir="${dir%/}"
     for file in $expected; do
-        [ -f "$dir/$file" ] || violation "$dir" "missing $file"
+        [ -f "$dir/$file" ] || violation "$dir/$file" 2
     done
     for entry in "$dir"/*; do
         name="$(basename "$entry")"
         case " $expected " in
             *" $name "*) ;;
-            *) violation "$entry" "feature dirs hold only $expected" ;;
+            *) [ -f "$entry" ] && [[ "$name" == *.test.ts ]] || violation "$entry" 2 ;;
         esac
     done
-    if [ -f "$dir/http.rs" ] && code_grep '(^|[^[:alnum:]_])sqlx::|use sqlx' "$dir/http.rs" >/dev/null; then
-        violation "$dir/http.rs" "http.rs must not use sqlx"
+    if [ -f "$dir/http.ts" ] && code_grep "[\"'](drizzle-orm(/[^\"']*)?|bun:sqlite)[\"']" "$dir/http.ts" >/dev/null; then
+        violation "$dir/http.ts" 3
     fi
-    if [ -f "$dir/repo.rs" ] && code_grep '(^|[^[:alnum:]_])axum::|use axum' "$dir/repo.rs" >/dev/null; then
-        violation "$dir/repo.rs" "repo.rs must not use axum"
+    if [ -f "$dir/repo.ts" ] && code_grep "[\"'](hono|@hono/[^\"']*)(/[^\"']*)?[\"']" "$dir/repo.ts" >/dev/null; then
+        violation "$dir/repo.ts" 3
     fi
 done
 
+[ -d "$src" ] || exit "$failed"
 while IFS= read -r file; do
-    if [ "$file" != "$src/config.rs" ] && code_grep '(^|[^[:alnum:]_])env::(var|\{([^}]*[^[:alnum:]_])?var)' "$file" >/dev/null; then
-        violation "$file" "std::env::var only in config.rs"
+    if [ "$file" != "$src/config.ts" ] && code_grep '(^|[^[:alnum:]_$.])((process|Bun)\.env|import\.meta\.env|process\[["'"'"'"]env)([^[:alnum:]_$]|$)' "$file" >/dev/null; then
+        violation "$file" 8
     fi
-    if [ "$file" != "$src/cli.rs" ] && code_grep '(^|[^[:alnum:]_])println!' "$file" >/dev/null; then
-        violation "$file" "println! only in cli.rs"
+    if [ "$file" != "$src/cli.ts" ] && code_grep '(^|[^[:alnum:]_$.])(console\.|process\.stdout([^[:alnum:]_$]|$))' "$file" >/dev/null; then
+        violation "$file" 8
     fi
-done < <(find "$src" -name '*.rs' | sort)
+done < <(find "$src" -name '*.ts' | sort)
 
 exit "$failed"

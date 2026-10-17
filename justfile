@@ -35,8 +35,12 @@ setup:
         fi
     }
 
+    # binstall's own compile fallback ignores our feature flags, so the source build stays ours.
     cargo_tool() {
-        cargo binstall --no-confirm --locked "$1" || cargo install --locked "$1"
+        local crate="$1"
+        shift
+        cargo binstall --no-confirm --locked --disable-strategies compile "$crate" ||
+            cargo install --locked "$@" "$crate"
     }
 
     node_major() { "${1:-node}" -p 'process.versions.node.split(".")[0]' 2>/dev/null; }
@@ -95,7 +99,7 @@ setup:
     ensure cargo-nextest "has cargo-nextest" "cargo_tool cargo-nextest"
     ensure cargo-deny "has cargo-deny" "cargo_tool cargo-deny"
     ensure cargo-machete "has cargo-machete" "cargo_tool cargo-machete"
-    ensure sqlx-cli "has sqlx" "cargo_tool sqlx-cli"
+    ensure sqlx-cli "has sqlx" "cargo_tool sqlx-cli --no-default-features --features sqlite,rustls"
     ensure bacon "has bacon" "$(brew_or bacon 'cargo_tool bacon')"
     ensure prek "has prek" \
         "$(brew_or prek 'curl --proto =https --tlsv1.2 -LsSf https://github.com/j178/prek/releases/latest/download/prek-installer.sh | sh -s -- --no-modify-path')"

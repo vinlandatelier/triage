@@ -3,7 +3,7 @@
 set -euo pipefail
 pr=$1 video=$2
 repo=${REPO:-$(gh repo view --json nameWithOwner --jq .nameWithOwner)}
-command -v ffmpeg >/dev/null || { [[ "$(uname)" == Linux ]] && sudo apt-get install -qq -y ffmpeg >/dev/null; }
+command -v ffmpeg >/dev/null || { echo "walkthrough.sh: ffmpeg is not installed" >&2; exit 1; }
 tmp=$(mktemp -d); trap 'rm -rf "$tmp"' EXIT
 gif=$tmp/walkthrough.gif
 

@@ -35,6 +35,8 @@ jobs:
 
       - uses: oven-sh/setup-bun@v2
 
+      - run: sudo apt-get update -qq && sudo apt-get install -qq -y ffmpeg
+
       - run: gh extension install github/gh-stack --pin v0.2.1
         env:
           GH_TOKEN: ${{ steps.app.outputs.token }}

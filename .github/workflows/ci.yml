@@ -112,6 +112,7 @@ jobs:
           bun-version-file: .bun-version
       - run: bun install --frozen-lockfile
       - run: just check-web
+      - run: just gen-api-check
       - run: just build-web
       - uses: actions/upload-artifact@v4
         with:

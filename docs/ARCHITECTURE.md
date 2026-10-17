@@ -11,11 +11,12 @@ The tree is the target layout. Files appear as the tickets that need them land.
 ```
 triage/
   Cargo.toml  rust-toolchain.toml  rustfmt.toml  deny.toml  bacon.toml  justfile
-  package.json  bun.lock   bun workspace, member web/
+  package.json  bun.lock   bun workspace, members web/ and tools/gen-api/
   .bun-version       bun version for CI and `just setup`
   prek.toml  renovate.json  .github/workflows/
   .cargo/config.toml   SQLX_OFFLINE=true
   scripts/           check-layout.sh
+  tools/gen-api/     openapi-ts.config.ts nocheck.ts, hey-api pinned to TypeScript 6
   crates/triage/
     Cargo.toml  build.rs  migrations/  .sqlx/  openapi.json  schema.sql
     src/
@@ -39,7 +40,7 @@ triage/
     package.json vite.config.ts biome.json tsconfig.json env.ts index.html prek.toml components.json
     doctor.config.ts knip.json
     src/
-      main.tsx router.ts routeTree.gen.ts error.ts fallbacks.tsx index.css
+      main.tsx router.ts routeTree.gen.ts error.ts fallbacks.tsx index.css api-config.ts query.ts
       lib/utils.ts       cn()
       components/        theme-provider.tsx theme-toggle.tsx
       routes/            file-based
@@ -143,6 +144,8 @@ Routes register through `utoipa_axum::router::OpenApiRouter` in `http::router::r
 
 `web/` is a Vite SPA. Routing is TanStack Router with file-based routes in `web/src/routes/`. `@tanstack/router-plugin/vite` runs with `autoCodeSplitting` and sits before `react()` in `vite.config.ts`, after `ValidateEnv()`. It writes `web/src/routeTree.gen.ts` on every `vite dev` and `vite build`; the file is committed, never edited, and excluded from Biome. knip needs no ignore for it, since nothing in it goes unused. `router.ts::createAppRouter` builds the router and registers its type; `main.tsx` and the tests both call it. `routes/__root.tsx` is the shell: a header and `<Outlet/>`. `fallbacks.tsx` holds `NotFound` and `RouteError`; the root route uses them and `createAppRouter` sets them as `defaultNotFoundComponent` and `defaultErrorComponent`, so a child route's error or `notFound()` renders inside `<Outlet/>` and keeps the header. `RouteError` shows the message and the request id when there is one, and its retry calls `reset()` plus `router.invalidate()` so a failed loader runs again. `web/src/error.ts::describeError` reads a problem+json body (`detail`, then `title`, request id from `instance`) or an `Error` (`message`, `requestId`); empty strings count as missing.
 
+`web/src/api/` is the hey-api 0.99 output for `crates/triage/openapi.json`: types, an SDK (`healthGet`), and TanStack Query options (`healthGetOptions`). It is committed, never edited, and excluded from Biome, knip, react-doctor, and coverage. `just gen-api` (`bun run gen:api`) regenerates it. The generator lives in its own workspace, `tools/gen-api/`, because hey-api needs the TypeScript compiler API, which TypeScript 7 does not ship; that workspace pins TypeScript 6 and nothing in `web/` imports it. hey-api copies its fetch runtime into `src/api/client/` and `src/api/core/`, and `nocheck.ts` marks those files `// @ts-nocheck` because they fail `exactOptionalPropertyTypes`; the schema-derived files stay checked. `src/api-config.ts` sets the client base URL to `VITE_API_URL`, resolved against `location.origin` because Node's fetch rejects a relative URL in tests. The client runs with `throwOnError`. `src/query.ts` registers `toProblemError` as the client's error interceptor, so every failed response rejects with `ProblemError` (`status`, `title`, `detail`, `instance`, `errors`); a body that is not a problem keeps the response status. A fetch with no response keeps its own error. The interceptor is registered there because the generated client imports `api-config.ts` while it loads. `createQueryClient()` sets `retry: 1`, `staleTime: 30_000`, and `throwOnError` for `ProblemError` with status 500 or more, so 5xx reaches the route `errorComponent` and 4xx stays with the component. The router context carries `queryClient` (`createRootRouteWithContext`), with `defaultPreloadStaleTime: 0` so Query decides freshness. `main.tsx` reloads once on `vite:preloadError`, when a deploy removed a chunk an open tab still points at; a `sessionStorage` timestamp stops a reload loop within 10 s.
+
 Styling is Tailwind 4 through `@tailwindcss/vite` (last in `plugins`) and shadcn v4 with Base UI (`components.json`, style `base-nova`). `src/index.css` holds the Tailwind imports and the shadcn theme variables; the `dark` variant matches descendants of `.dark` on `<html>`, and `color-scheme` follows the theme so native controls match. Add a component with `bunx shadcn add <name>`, which runs the pinned CLI, from `web/`; it lands in `src/components/ui/` and is then ours to edit. Imports use `@/` for `src/`, defined once in `tsconfig.json` `paths` and read by Vite through `resolve.tsconfigPaths`. Biome parses Tailwind directives (`css.parser.tailwindDirectives`). shadcn's generated `utils.ts` and font import were replaced with `clsx` + `tailwind-merge` and the system font, because the code may import only allowlisted packages; re-check `package.json` after any `shadcn` command.
 
 Theme is `system | light | dark`, default `system`, stored in `localStorage` under `triage-theme`. An inline script in `index.html` sets `.light` or `.dark` before first paint; `components/theme-provider.tsx` (shadcn's Vite provider, with storage access in try/catch, a `matchMedia` listener so `system` follows the OS live, no `storageKey`/`defaultTheme` props so it cannot drift from the script, and a `useTheme` that throws outside the provider) takes over after mount. The key lives in both files. `components/theme-toggle.tsx` cycles the three values from the header.
@@ -170,15 +173,17 @@ Web tests run on Vitest with jsdom, configured in the `test` block of `web/vite.
 | layer | trigger | runs |
 |---|---|---|
 | edit hook | Claude Code PostToolUse on Edit/Write | `cargo fmt` or `biome check --write` on that file |
-| prek | commit | fmt, clippy, layout check, biome, react-doctor, schema and openapi drift, builtin file checks, actionlint, commitlint |
-| `just check` | agent before PR, human anytime | prek set + tsc, nextest, vitest, knip, cargo-deny, cargo-machete, sqlx offline check |
+| prek | commit | fmt, clippy, layout check, biome, react-doctor, schema, openapi, and api client drift, builtin file checks, actionlint, commitlint |
+| `just check` | agent before PR, human anytime | prek set + tsc, nextest, vitest, knip, cargo-deny, cargo-machete, sqlx offline check, api client drift |
 | CI | PR | `just check` split into jobs, ubuntu + macos for nextest, plus `just build-web` |
 
 `scripts/check-layout.sh` enforces rules 2, 3, and 8. It prints `file: rule` per violation and exits 1 on any. It ignores `//` comments, so docs may name the forbidden items.
 
-`just check-web` runs `bun run lint`, `typecheck`, `doctor`, `knip`, and `test`, in that order. `doctor` is react-doctor with `-y --no-telemetry --blocking warning`, so a warning fails it. `web/doctor.config.ts` keeps the recommended rules and turns off the Socket.dev supply-chain scan, which makes one network request per dependency. react-doctor turns on its `tanstack-query` rules by itself once `@tanstack/react-query` is a dependency. `web/knip.json` adds `src/routes/**`, `env.ts`, and `doctor.config.ts` as entries; everything else is knip's zero-config defaults. When hey-api output lands in `src/api/`, add it to knip's `ignore`.
+`just check-web` runs `bun run lint`, `typecheck`, `doctor`, `knip`, and `test`, in that order. `doctor` is react-doctor with `-y --no-telemetry --blocking warning`, so a warning fails it. `web/doctor.config.ts` keeps the recommended rules and turns off the Socket.dev supply-chain scan, which makes one network request per dependency. react-doctor turns on its `tanstack-query` rules by itself once `@tanstack/react-query` is a dependency. `web/knip.json` adds `src/routes/**`, `env.ts`, and `doctor.config.ts` as entries; everything else is knip's zero-config defaults. `src/api/**` is in knip's `ignore`.
 
-The CI `web` job runs `bun install --frozen-lockfile`, `just check-web`, then `just build-web`, and uploads `web/dist/` as the `web-dist` artifact, kept 7 days, for jobs that embed the UI.
+The CI `web` job runs `bun install --frozen-lockfile`, `just check-web`, `just gen-api-check`, then `just build-web`, and uploads `web/dist/` as the `web-dist` artifact, kept 7 days, for jobs that embed the UI.
+
+`just gen-api-check` regenerates `web/src/api/` and fails when the result differs from the git index or adds untracked files, so staged output passes. prek runs it when `openapi.json`, `tools/gen-api/`, or `web/src/api/` changes.
 
 prek runs `web/prek.toml` as a workspace project, found by discovery, with paths relative to `web/`. Its hooks run `biome check --write` on staged web files and `react-doctor --staged` when a staged file is `.tsx`. `tsc` is a `manual` stage hook (`prek run --stage manual tsc`) because it checks the whole project. After adding or moving a nested `prek.toml`, run `prek list --refresh`; prek caches the workspace layout.
 

@@ -1,7 +1,7 @@
 {
   "name": "triage",
   "private": true,
-  "workspaces": ["web"],
+  "workspaces": ["web", "tools/gen-api"],
   "scripts": {
     "dev": "bun run --filter @triage/web dev",
     "build": "bun run --filter @triage/web build",
@@ -10,6 +10,7 @@
     "typecheck": "bun run --filter @triage/web typecheck",
     "doctor": "bun run --filter @triage/web doctor",
     "knip": "bun run --filter @triage/web knip",
-    "test": "bun run --filter @triage/web test"
+    "test": "bun run --filter @triage/web test",
+    "gen:api": "bun run --filter @triage/gen-api gen"
   }
 }

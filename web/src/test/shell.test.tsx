@@ -1,15 +1,23 @@
+import { QueryClientProvider } from "@tanstack/react-query";
 import { createMemoryHistory, RouterProvider } from "@tanstack/react-router";
 import { render, screen } from "@testing-library/react";
 import { test } from "vitest";
 import { ThemeProvider } from "@/components/theme-provider";
+import { createQueryClient } from "@/query";
 import { createAppRouter } from "@/router";
 
 function renderAt(path: string) {
-  const router = createAppRouter({ history: createMemoryHistory({ initialEntries: [path] }) });
+  const queryClient = createQueryClient();
+  const router = createAppRouter({
+    queryClient,
+    history: createMemoryHistory({ initialEntries: [path] }),
+  });
   render(
-    <ThemeProvider>
-      <RouterProvider router={router} />
-    </ThemeProvider>,
+    <QueryClientProvider client={queryClient}>
+      <ThemeProvider>
+        <RouterProvider router={router} />
+      </ThemeProvider>
+    </QueryClientProvider>,
   );
 }
 

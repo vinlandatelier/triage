@@ -5,6 +5,7 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
+    "gen:api": "bun run --filter @triage/gen-api gen",
     "lint": "biome ci",
     "fix": "biome check --write",
     "typecheck": "tsc --noEmit",
@@ -14,6 +15,7 @@
   },
   "dependencies": {
     "@base-ui/react": "1.9.0",
+    "@tanstack/react-query": "5.104.3",
     "@tanstack/react-router": "1.170.45",
     "class-variance-authority": "0.7.1",
     "clsx": "2.1.1",

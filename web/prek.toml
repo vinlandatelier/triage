@@ -1,0 +1,8 @@
+[[repos]]
+repo = "local"
+hooks = [
+  { id = "biome", name = "biome check", language = "system", entry = "bunx biome check --write --no-errors-on-unmatched --files-ignore-unknown=true", types_or = ["javascript", "jsx", "ts", "tsx", "json", "css"] },
+  { id = "react-doctor", name = "react-doctor", language = "system", entry = "bun run doctor --staged", files = '\.tsx$', pass_filenames = false },
+  # tsc checks the whole project in seconds, too slow for every commit; `just check-web` runs it.
+  { id = "tsc", name = "tsc", language = "system", entry = "bun run typecheck", stages = ["manual"], pass_filenames = false },
+]

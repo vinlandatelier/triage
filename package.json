@@ -8,6 +8,8 @@
     "lint": "bun run --filter @triage/web lint",
     "fix": "bun run --filter @triage/web fix",
     "typecheck": "bun run --filter @triage/web typecheck",
+    "doctor": "bun run --filter @triage/web doctor",
+    "knip": "bun run --filter @triage/web knip",
     "test": "bun run --filter @triage/web test"
   }
 }

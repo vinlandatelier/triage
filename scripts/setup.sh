@@ -4,6 +4,10 @@
 # TRIAGE_USER_PATH, so warnings can name tools a plain shell would not find.
 # No -e: a failed install is counted and reported, and the rest still run.
 set -uo pipefail
+if [ -z "${TRIAGE_USER_PATH:-}" ]; then
+    echo "run this through \`just setup\`" >&2
+    exit 1
+fi
 cd "$(dirname "$0")/.." || exit 1
 os="$(uname -s)"
 failures=0
@@ -106,7 +110,7 @@ if ! has claude; then
     echo "warning: claude is not on PATH; install Claude Code to run the agent"
 fi
 # Git hooks and plain shells use the user's PATH, not the one exported above.
-user_path="${TRIAGE_USER_PATH:-$PATH}"
+user_path="$TRIAGE_USER_PATH"
 for tool in cargo just prek bun actionlint; do
     dir="$(dirname "$(command -v "$tool" 2>/dev/null || echo /)")"
     if has "$tool" && [[ ":$user_path:" != *":$dir:"* ]]; then

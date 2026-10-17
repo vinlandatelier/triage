@@ -40,6 +40,9 @@ it behind. Restack them:
    maintainer: one line per conflict with file, options, and a recommendation.
 4. Run the checks on each branch the rebase changed, then `gh stack push`.
 
+Never merge one branch into another to catch up (`git merge`, `git pull`): a
+merge commit stops `gh stack` from finding the old base for every PR above it.
+
 ## Review assistant
 
 When triggered from a PR comment: make the requested change on the PR branch,

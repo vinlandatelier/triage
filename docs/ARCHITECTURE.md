@@ -20,7 +20,7 @@ triage/
   crates/triage/
     Cargo.toml  build.rs  migrations/  .sqlx/  openapi.json  schema.sql
     src/
-      main.rs            clap → cli::run (config → telemetry → command)
+      main.rs            parse → cli::run (config → telemetry → command) → exit code
       lib.rs
       cli.rs             subcommands
       config.rs          env → Config, Paths
@@ -28,14 +28,15 @@ triage/
       telemetry.rs       tracing layers, dormant otel
       telemetry/         columns.rs (stderr formatter) otel.rs (OTLP exporter)
       http.rs            serve: lock, bind, graceful shutdown
-      http/              router.rs state.rs middleware.rs probe.rs openapi.rs assets.rs
-      store/             pool.rs
+      http/              router.rs state.rs middleware.rs assets.rs openapi.rs probe.rs
+      store.rs           Store, store::Error
+      store/             pool.rs query.rs schema.rs
       guardrails/        placeholder
       features/
         mod.rs           registers feature routers
         <name>/          mod.rs http.rs service.rs repo.rs model.rs
     src/bin/gen_openapi.rs
-    tests/api/           main.rs helpers.rs <feature>.rs
+    tests/api/           main.rs helpers.rs <feature>.rs snapshots/
   web/
     package.json vite.config.ts biome.json tsconfig.json env.ts index.html prek.toml components.json
     playwright.config.ts
@@ -178,14 +179,14 @@ Web tests run on Vitest with jsdom, configured in the `test` block of `web/vite.
 |---|---|---|
 | edit hook | Claude Code PostToolUse on Edit/Write | `rustfmt` or `biome check --write` on that file |
 | prek | commit | fmt, clippy, layout check, biome, react-doctor, schema, openapi, and api client drift, builtin file checks, actionlint, commitlint |
-| `just check` | agent before PR, human anytime | prek set + tsc, nextest, vitest, knip, cargo-deny, cargo-machete, sqlx offline check, api client drift |
+| `just check` | agent before PR, human anytime | fmt, clippy, layout, biome, react-doctor, schema, openapi + tsc, nextest, vitest, knip, cargo-deny, cargo-machete, sqlx offline check, api client drift |
 | CI | PR | `just check` split into jobs, ubuntu + macos for nextest, plus `just build-web`, then `just e2e` |
 
 `scripts/check-layout.sh` enforces rules 2, 3, and 8. It prints `file: rule` per violation and exits 1 on any. It ignores `//` comments, so docs may name the forbidden items.
 
 `.claude/settings.json` runs `scripts/claude-format.sh` after every Edit or Write. The script reads `tool_input.file_path` from the hook JSON with `sed`, since `jq` is not a dev tool. A `.rs` file goes through `rustfmt` alone, because `cargo fmt` reformats the whole workspace. A `.ts`, `.tsx`, `.js`, `.jsx`, `.json`, or `.css` file under `web/` goes through `web/node_modules/.bin/biome check --write`, run from `web/`; `bunx` is avoided because it downloads biome when it is missing. The script prints nothing and always exits 0. A missing formatter prints one `systemMessage` per tool per session, tracked by a marker file in `$TMPDIR`.
 
-`just check-web` runs `bun run lint`, `typecheck`, `doctor`, `knip`, and `test`, in that order. `doctor` is react-doctor with `-y --no-telemetry --blocking warning`, so a warning fails it. `web/doctor.config.ts` keeps the recommended rules and turns off the Socket.dev supply-chain scan, which makes one network request per dependency. react-doctor turns on its `tanstack-query` rules by itself once `@tanstack/react-query` is a dependency. `web/knip.json` adds `src/routes/**`, `env.ts`, and `doctor.config.ts` as entries; everything else is knip's zero-config defaults. `src/api/**` is in knip's `ignore`.
+`just check-web` runs `bun run lint`, `typecheck`, `doctor`, `knip`, and `test`, in that order. `doctor` is react-doctor with `-y --no-telemetry --blocking warning`, so a warning fails it. `web/doctor.config.ts` keeps the recommended rules and turns off the Socket.dev supply-chain scan, which makes one network request per dependency. react-doctor turns on its `tanstack-query` rules by itself once `@tanstack/react-query` is a dependency. `web/knip.json` adds `src/routes/**/*.tsx`, `env.ts`, and `doctor.config.ts` as entries; everything else is knip's zero-config defaults. `src/api/**` is in knip's `ignore`.
 
 The CI `web` job runs `bun install --frozen-lockfile`, `just check-web`, `just gen-api-check`, then `just build-web`, and uploads `web/dist/` as the `web-dist` artifact, kept 7 days. The `test` job needs `web` and downloads that artifact into `web/dist/` before `just test`.
 

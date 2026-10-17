@@ -187,6 +187,9 @@ mod tests {
     use serde_json::Value;
     use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
     use tokio::net::{TcpListener, TcpStream};
+    use tracing::Level;
+    use tracing_subscriber::Layer as _;
+    use tracing_subscriber::filter::Targets;
     use tracing_subscriber::layer::SubscriberExt as _;
 
     use super::*;
@@ -248,8 +251,11 @@ mod tests {
     ) -> Result<(Vec<String>, Vec<Value>), Box<dyn std::error::Error>> {
         let capture = Capture::default();
         let writer = capture.clone();
-        let subscriber =
-            tracing_subscriber::registry().with(telemetry::file_layer(move || writer.clone()));
+        let subscriber = tracing_subscriber::registry().with(
+            telemetry::file_layer(move || writer.clone())
+                // axum's `tracing` feature, on in test builds via axum-test, logs connection events.
+                .with_filter(Targets::new().with_target("triage", Level::TRACE)),
+        );
         let _default = tracing::subscriber::set_default(subscriber);
 
         let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).await?;

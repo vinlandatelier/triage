@@ -6,7 +6,13 @@ use std::sync::mpsc;
 use std::thread;
 use std::time::{Duration, Instant};
 
-pub type TestResult = Result<(), Box<dyn std::error::Error>>;
+use axum_test::TestServer;
+use tempfile::TempDir;
+use triage::config::{Config, Paths};
+use triage::http::{AppState, router};
+use triage::store::{self, Store};
+
+pub type TestResult<T = ()> = Result<T, Box<dyn std::error::Error>>;
 
 pub const WAIT: Duration = Duration::from_secs(10);
 
@@ -34,9 +40,7 @@ pub fn triage(dir: &Path) -> Command {
 
 /// Starts `serve` from `command` and waits for `listening`. The receiver yields the daemon's
 /// later stderr lines.
-pub fn serve(
-    mut command: Command,
-) -> Result<(Daemon, SocketAddr, mpsc::Receiver<String>), Box<dyn std::error::Error>> {
+pub fn serve(mut command: Command) -> TestResult<(Daemon, SocketAddr, mpsc::Receiver<String>)> {
     let child = command
         .arg("serve")
         // Port 0 avoids racing parallel tests for a free port; the `listening` line names it.
@@ -82,4 +86,29 @@ pub fn wait_for_line(
         }
     }
     None
+}
+
+/// One test's app: an in-process server over a fresh, migrated database.
+#[derive(Debug)]
+pub struct TestApp {
+    pub server: TestServer,
+    pub store: Store,
+    #[allow(dead_code, reason = "held so the database outlives the store")]
+    pub dir: TempDir,
+}
+
+pub async fn spawn_app() -> TestResult<TestApp> {
+    let dir = tempfile::tempdir()?;
+    let paths = Paths {
+        data: dir.path().to_path_buf(),
+        logs: dir.path().join("logs"),
+        config: dir.path().join("config"),
+    };
+    let store = store::open(&paths).await?;
+    let server = TestServer::new(router(AppState::new(
+        Config::default(),
+        paths,
+        store.clone(),
+    )));
+    Ok(TestApp { server, store, dir })
 }

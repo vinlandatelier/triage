@@ -135,6 +135,10 @@ Handlers return `crate::error::Result<T>` with `AppError`: `NotFound(String)` 40
 
 Every HTTP request opens a span `http` with `method`, `path` (no query), `request_id`, and `status`, recorded on response. Events inside a handler inherit `request_id`. A future `agent_run` span carries `session_id`, `model`, `cost_usd`, `num_turns`.
 
+## Testing
+
+Integration tests live in one binary, `crates/triage/tests/api/`: `main.rs` declares the modules, `helpers.rs` holds the harness, and each feature gets its own file. `helpers::spawn_app()` returns `TestApp { server, store, dir }`: a fresh `TempDir` as the data dir, a migrated `Store` on it, and an in-process `axum_test::TestServer` over `http::router`. Dropping `dir` deletes the database, so keep the `TestApp` alive for the whole test. nextest runs each test in its own process. Tests that need the real binary (signals, stderr, `triage status`) spawn `CARGO_BIN_EXE_triage` with `--data-dir` instead. `schema::schema_conventions` checks every ordinary table in `main` except `_sqlx_migrations` and SQLite's internal `sqlite_*` tables; virtual tables and their shadow tables are skipped. It fails when one is not `STRICT`, lacks `id TEXT PRIMARY KEY`, `created_at`, or `updated_at`, or has a name that is not snake_case. axum-test turns on axum's `tracing` feature in test builds, so log-capture tests filter to the `triage` target.
+
 ## Quality gates
 
 | layer | trigger | runs |

@@ -6,6 +6,7 @@ use std::path::PathBuf;
 
 use clap::{CommandFactory, Parser, Subcommand};
 use clap_complete::Shell;
+use time::OffsetDateTime;
 
 use crate::config::{self, Config, Paths};
 use crate::telemetry;
@@ -36,8 +37,17 @@ enum Command {
     /// Inspect the resolved configuration
     #[command(subcommand)]
     Config(ConfigCommand),
+    /// Locate log files
+    #[command(subcommand)]
+    Logs(LogsCommand),
     /// Print a shell completion script to stdout
     Completions { shell: CompletionShell },
+}
+
+#[derive(Debug, Subcommand)]
+enum LogsCommand {
+    /// Print the absolute path of today's JSONL log file, which may not exist yet
+    Path,
 }
 
 #[derive(Debug, Subcommand)]
@@ -78,9 +88,18 @@ pub fn run(cli: Cli) -> config::Result<()> {
     tracing::debug!(?config, ?paths, "startup");
     match command {
         Some(Command::Config(ConfigCommand::Show)) => show(&config, &paths),
+        Some(Command::Logs(LogsCommand::Path)) => logs_path(&paths),
         Some(Command::Completions { .. }) | None => {}
     }
     Ok(())
+}
+
+#[expect(clippy::print_stdout, reason = "CLI output")]
+fn logs_path(paths: &Paths) {
+    println!(
+        "{}",
+        telemetry::log_file(&paths.logs, OffsetDateTime::now_utc().date()).display()
+    );
 }
 
 #[expect(clippy::print_stdout, reason = "CLI output")]

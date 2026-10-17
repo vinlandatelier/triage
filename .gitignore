@@ -2,3 +2,5 @@
 .envrc
 CLAUDE.local.md
 /target/
+node_modules/
+/web/dist/

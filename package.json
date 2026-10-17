@@ -1,0 +1,12 @@
+{
+  "name": "triage",
+  "private": true,
+  "workspaces": ["web"],
+  "scripts": {
+    "dev": "bun run --filter @triage/web dev",
+    "build": "bun run --filter @triage/web build",
+    "lint": "bun run --filter @triage/web lint",
+    "fix": "bun run --filter @triage/web fix",
+    "typecheck": "bun run --filter @triage/web typecheck"
+  }
+}

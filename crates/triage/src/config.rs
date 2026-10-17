@@ -2,7 +2,7 @@
 //!
 //! This is the only module that reads `std::env`.
 
-use std::ffi::OsString;
+use std::ffi::{OsStr, OsString};
 use std::fmt;
 use std::fs::{self, DirBuilder, OpenOptions};
 use std::io;
@@ -81,10 +81,11 @@ pub type Result<T, E = Error> = std::result::Result<T, E>;
 pub enum LogFormat {
     #[default]
     Columns,
-    Json,
+    Pretty,
+    Compact,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[derive(Clone, PartialEq, Eq, Deserialize)]
 #[serde(default)]
 pub struct Config {
     pub port: u16,
@@ -175,6 +176,29 @@ impl Config {
     }
 }
 
+// Manual so the startup log cannot leak `otel_endpoint` credentials through `Url`'s `Debug`.
+impl fmt::Debug for Config {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let Self {
+            port,
+            log_level,
+            log_file_level,
+            log_format,
+            otel_endpoint,
+        } = self;
+        f.debug_struct("Config")
+            .field("port", port)
+            .field("log_level", log_level)
+            .field("log_file_level", log_file_level)
+            .field("log_format", log_format)
+            .field(
+                "otel_endpoint",
+                &otel_endpoint.as_ref().map(redact_userinfo),
+            )
+            .finish()
+    }
+}
+
 fn redact_userinfo(url: &Url) -> String {
     let mut url = url.clone();
     // Both setters only fail on URLs that cannot have userinfo, which also have none to hide.
@@ -232,9 +256,8 @@ pub struct Paths {
 impl Paths {
     /// `--data-dir` > `TRIAGE_DATA_DIR` > platform dirs. Creates each dir with mode 0700.
     pub fn resolve(flag: Option<PathBuf>) -> Result<Self> {
-        let env = std::env::var_os(DATA_DIR_VAR).filter(|v| !v.is_empty());
         let home = std::env::var_os("HOME").filter(|v| Path::new(v).is_absolute());
-        let paths = match pick_data_dir(flag, env) {
+        let paths = match pick_data_dir(flag, data_dir_env()) {
             Some(dir) => Self::under(absolute_data_dir(dir)?),
             None => Self::platform(home)?,
         };
@@ -263,11 +286,33 @@ impl Paths {
     }
 
     fn create(&self) -> Result<()> {
-        for dir in [&self.data, &self.config, &self.logs] {
+        for dir in [&self.data, &self.config] {
             create_dir(dir)?;
             check_writable(dir)?;
         }
+        // Telemetry reports an unusable logs dir and falls back to stderr.
+        let _ = create_dir(&self.logs);
         Ok(())
+    }
+}
+
+/// Logs at debug when `--data-dir` wins over `TRIAGE_DATA_DIR`.
+/// Separate from [`Paths::resolve`] because the subscriber needs the resolved logs dir first.
+pub fn log_data_dir_override(flag: Option<&Path>) {
+    log_override(flag, data_dir_env().as_deref());
+}
+
+fn data_dir_env() -> Option<OsString> {
+    std::env::var_os(DATA_DIR_VAR).filter(|v| !v.is_empty())
+}
+
+fn log_override(flag: Option<&Path>, env: Option<&OsStr>) {
+    if let (Some(flag), Some(env)) = (flag, env) {
+        tracing::debug!(
+            flag = %flag.display(),
+            env = %Path::new(env).display(),
+            "--data-dir overrides {DATA_DIR_VAR}"
+        );
     }
 }
 
@@ -284,17 +329,7 @@ fn platform_logs(_home: &Path, dirs: &ProjectDirs) -> PathBuf {
 }
 
 fn pick_data_dir(flag: Option<PathBuf>, env: Option<OsString>) -> Option<PathBuf> {
-    match (flag, env) {
-        (Some(flag), Some(env)) => {
-            tracing::debug!(
-                flag = %flag.display(),
-                env = %Path::new(&env).display(),
-                "--data-dir overrides {DATA_DIR_VAR}"
-            );
-            Some(flag)
-        }
-        (flag, env) => flag.or_else(|| env.map(PathBuf::from)),
-    }
+    flag.or_else(|| env.map(PathBuf::from))
 }
 
 // No shell expands `~` in `.env` or a quoted flag, and a relative dir would
@@ -320,16 +355,19 @@ fn create_dir(path: &Path) -> Result<()> {
 // An existing read-only dir passes create_dir, so probe with a real write.
 // The pid keeps concurrent starts apart; `create_new` refuses a planted symlink.
 fn check_writable(dir: &Path) -> Result<()> {
+    probe_writable(dir).map_err(|source| Error::NotWritable {
+        path: dir.to_path_buf(),
+        source,
+    })
+}
+
+pub(crate) fn probe_writable(dir: &Path) -> io::Result<()> {
     let probe = dir.join(format!(".triage-write-check-{}", std::process::id()));
     OpenOptions::new()
         .write(true)
         .create_new(true)
         .open(&probe)
         .and_then(|_| fs::remove_file(&probe))
-        .map_err(|source| Error::NotWritable {
-            path: dir.to_path_buf(),
-            source,
-        })
 }
 
 #[cfg(test)]
@@ -361,11 +399,11 @@ mod tests {
         Jail::try_with(|jail| {
             jail.clear_env();
             jail.set_env("TRIAGE_PORT", "8000");
-            jail.set_env("TRIAGE_LOG_FORMAT", "json");
+            jail.set_env("TRIAGE_LOG_FORMAT", "pretty");
             jail.set_env("TRIAGE_OTEL_ENDPOINT", "http://localhost:4317");
             let config = Config::from_env().map_err(|e| e.to_string())?;
             assert_eq!(config.port, 8000);
-            assert_eq!(config.log_format, LogFormat::Json);
+            assert_eq!(config.log_format, LogFormat::Pretty);
             assert_eq!(
                 config.otel_endpoint.map(String::from).as_deref(),
                 Some("http://localhost:4317/")
@@ -530,6 +568,18 @@ mod tests {
     }
 
     #[test]
+    fn debug_redacts_endpoint_credentials() -> TestResult {
+        let config = Config {
+            otel_endpoint: Some(Url::parse("http://user:hunter2@host:4317")?),
+            ..Config::default()
+        };
+        let debug = format!("{config:?}");
+        assert!(!debug.contains("hunter2"), "{debug}");
+        assert!(!debug.contains("user"), "{debug}");
+        Ok(())
+    }
+
+    #[test]
     fn data_dir_puts_everything_under_it() -> TestResult {
         let tmp = tempfile::tempdir()?;
         let root = tmp.path().join("t");
@@ -590,7 +640,7 @@ mod tests {
             .with_writer(move || writer.clone())
             .finish();
         tracing::subscriber::with_default(subscriber, || {
-            pick_data_dir(Some("/flag".into()), Some("/env".into()));
+            log_override(Some(Path::new("/flag")), Some(OsStr::new("/env")));
         });
         let output = String::from_utf8(capture.0.lock().map_err(|_| "poisoned")?.clone())?;
         assert!(output.contains("DEBUG"), "{output}");
@@ -633,6 +683,21 @@ mod tests {
         let message = err.to_string();
         assert!(message.contains(&data.display().to_string()), "{message}");
         assert!(message.contains("ermission denied"), "{message}");
+        Ok(())
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn read_only_logs_dir_is_left_to_telemetry() -> TestResult {
+        use std::os::unix::fs::PermissionsExt;
+
+        let tmp = tempfile::tempdir()?;
+        let paths = Paths::under(tmp.path().join("t"));
+        fs::create_dir_all(&paths.logs)?;
+        fs::set_permissions(&paths.logs, fs::Permissions::from_mode(0o500))?;
+        let result = paths.create();
+        fs::set_permissions(&paths.logs, fs::Permissions::from_mode(0o700))?;
+        result?;
         Ok(())
     }
 }

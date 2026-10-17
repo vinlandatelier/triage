@@ -8,6 +8,7 @@ use clap::{CommandFactory, Parser, Subcommand};
 use clap_complete::Shell;
 
 use crate::config::{self, Config, Paths};
+use crate::telemetry;
 
 #[derive(Debug, Parser)]
 #[command(
@@ -64,13 +65,18 @@ impl From<CompletionShell> for Shell {
 
 pub fn run(cli: Cli) -> config::Result<()> {
     // Completions must work before config exists, e.g. during install.
-    if let Some(Command::Completions { shell }) = cli.command {
+    let Cli { data_dir, command } = cli;
+    if let Some(Command::Completions { shell }) = command {
         completions(shell, &mut io::stdout());
         return Ok(());
     }
     let config = Config::load()?;
-    let paths = Paths::resolve(cli.data_dir)?;
-    match cli.command {
+    let paths = Paths::resolve(data_dir.clone())?;
+    // Lives until `run` returns, which is when `main` exits.
+    let _guard = telemetry::init(&config, &paths);
+    config::log_data_dir_override(data_dir.as_deref());
+    tracing::debug!(?config, ?paths, "startup");
+    match command {
         Some(Command::Config(ConfigCommand::Show)) => show(&config, &paths),
         Some(Command::Completions { .. }) | None => {}
     }

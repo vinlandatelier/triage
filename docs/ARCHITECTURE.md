@@ -16,7 +16,7 @@ triage/
   crates/triage/
     Cargo.toml  build.rs  migrations/  .sqlx/  openapi.json  schema.sql
     src/
-      main.rs            clap → telemetry → run()
+      main.rs            clap → cli::run (config → telemetry → command)
       lib.rs
       cli.rs             subcommands
       config.rs          env → Config, Paths
@@ -99,7 +99,7 @@ Binary, crate, workspace: `triage`. Env prefix: `TRIAGE_`. `ProjectDirs::from("s
 
 On Linux, an unset XDG var falls back to `~/.local/share`, `~/.local/state`, or `~/.config`.
 
-`--data-dir <path>` or `TRIAGE_DATA_DIR` puts everything under one directory: data at its root, then `logs/` and `config/`. The flag wins over the env var and logs a debug line when it does. Tests always use it. A relative data dir is made absolute and a leading `~` exits 2. `Paths::resolve` creates missing dirs with mode 0700 and exits 1 when any of them is not writable or there is no absolute `HOME`.
+`--data-dir <path>` or `TRIAGE_DATA_DIR` puts everything under one directory: data at its root, then `logs/` and `config/`. The flag wins over the env var and logs a debug line when it does. Tests always use it. A relative data dir is made absolute and a leading `~` exits 2. `Paths::resolve` creates missing dirs with mode 0700 and exits 1 when the data or config dir is not writable or there is no absolute `HOME`. An unusable logs dir does not fail resolution; telemetry reports it (see Observability).
 
 ## Config
 
@@ -111,7 +111,13 @@ On Linux, an unset XDG var falls back to `~/.local/share`, `~/.local/state`, or 
 
 ## Observability
 
-`tracing` is the instrumentation. Three sinks: stderr columnar for humans, JSONL file for agents, OTLP when `TRIAGE_OTEL_ENDPOINT` is set. Every HTTP request opens a span with `request_id`, `method`, `path`, `status`. A future `agent_run` span carries `session_id`, `model`, `cost_usd`, `num_turns`.
+`tracing` is the instrumentation. Three sinks: stderr columnar for humans, JSONL file for agents, and OTLP when `TRIAGE_OTEL_ENDPOINT` is set (not wired yet; the var is parsed but has no effect). `telemetry::init(&Config, &Paths)` installs the subscriber in `cli::run` after `Paths::resolve`, so anything logged during resolution is lost; `config::log_data_dir_override` re-emits the override line afterwards. `cli::run` holds the returned guard until exit; dropping it stops file logging. Completions skip telemetry.
+
+- stderr: filter `TRIAGE_LOG_LEVEL`, format `TRIAGE_LOG_FORMAT` (`columns`, `pretty`, `compact`; `columns` is compact until its formatter lands).
+- JSONL: `<logs>/triage.<YYYY-MM-DD>.jsonl`, daily rotation, 7 files kept, lossless non-blocking writer, filter `TRIAGE_LOG_FILE_LEVEL`. Each line leads with `ts level target message`, then the event fields flattened, then `span` (innermost name), `request_id` (the event's own, else the nearest span that has one), `span_id`, `trace_id` (root span id). Ids are strings and unique only among live spans of one process. `ts` is UTC with 6 sub-second digits. `message` is always a string. An event field named like a reserved key is written as `field.<name>`, prefixed again until the key is free. The file filter also gates spans, so a span below `TRIAGE_LOG_FILE_LEVEL` gives its events no span keys.
+- An unwritable logs dir or an invalid filter logs one warning and continues on stderr or the default filter.
+
+Every HTTP request opens a span with `request_id`, `method`, `path`, `status`. A future `agent_run` span carries `session_id`, `model`, `cost_usd`, `num_turns`.
 
 ## Quality gates
 

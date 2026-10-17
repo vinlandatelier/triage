@@ -205,6 +205,36 @@ openapi:
 openapi-check:
     cargo nextest run --workspace --locked -E 'test(=openapi::openapi_spec_is_current)'
 
+# Pull each skill in .claude/skills/SOURCES.md to upstream HEAD for review. Never commits.
+skills-update:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    root="{{justfile_directory()}}"
+    sources="$root/.claude/skills/SOURCES.md"
+    tmp="$(mktemp -d)"
+    trap 'rm -rf "$tmp"' EXIT
+    grep -E '^\| [a-z0-9-]+ \| [^ ]+ \| [^ ]+ \| [0-9a-f]{40} \|' "$sources" |
+    while IFS='|' read -r _ skill repo path pinned _; do
+        skill="$(echo $skill)" repo="$(echo $repo)" path="$(echo $path)" pinned="$(echo $pinned)"
+        clone="$tmp/${repo//\//_}"
+        [ -d "$clone" ] || git clone --quiet --filter=blob:none "https://github.com/$repo" "$clone"
+        head="$(git -C "$clone" rev-parse HEAD)"
+        relative=()
+        [ "$path" = "." ] || relative=("--relative=$path/")
+        git -C "$clone" diff --binary "${relative[@]}" "$pinned" "$head" -- "$path" > "$tmp/patch"
+        if [ ! -s "$tmp/patch" ]; then
+            printf '%-32s up to date\n' "$skill"
+        # --reject keeps the hunks that apply and writes .rej files for the rest.
+        elif git -C "$root" apply --reject --whitespace=nowarn --directory=".claude/skills/$skill" "$tmp/patch" 2>"$tmp/err"; then
+            sed -i.bak "s/^| $skill \(|.*\)$pinned/| $skill \1$head/" "$sources" && rm "$sources.bak"
+            printf '%-32s updated to %s\n' "$skill" "${head:0:12}"
+        else
+            printf '%-32s CONFLICT, resolve .rej files and bump the commit by hand\n' "$skill"
+            sed 's/^/    /' "$tmp/err"
+        fi
+    done
+    git -C "$root" status --short -- .claude/skills
+
 # Apply automatic fixes.
 fix:
     cargo fmt --all

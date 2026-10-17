@@ -169,3 +169,7 @@ Web tests run on Vitest with jsdom, configured in the `test` block of `web/vite.
 | prek | commit | fmt, clippy, layout check, biome, tsc, react.doctor, schema and openapi drift, builtin file checks, actionlint, commitlint |
 | `just check` | agent before PR, human anytime | prek set + nextest, vitest, knip, cargo-deny, cargo-machete, sqlx offline check |
 | CI | PR | `just check` split into jobs, ubuntu + macos for nextest |
+
+## Agent skills
+
+`.claude/skills/` holds third-party skills, one directory each, vendored with `npx skills add` and pinned in `.claude/skills/SOURCES.md` (repo, path, commit, local edits). Local edits adapt them to these rules: `rust-best-practices` uses `AppError` and drops facet and aliri_braid, `rust-skills` keeps only the `err- type- api- async- proj- name- test- obs- serde- lint- pat- anti-` rules, and the two Vercel skills skip server-rendering rules because the web app is a Vite SPA. Where a skill disagrees with this file, this file wins. `just skills-update` applies each upstream diff since the pinned commit onto the vendored copy and bumps the commit; it never commits, and a patch that hits a local edit leaves `.rej` files to resolve by hand. Every skill directory must have a row in `SOURCES.md`.

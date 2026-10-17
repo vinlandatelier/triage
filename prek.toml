@@ -10,9 +10,10 @@ hooks = [
   { id = "check-merge-conflict" },
   { id = "check-toml" },
   { id = "check-yaml" },
-  { id = "end-of-file-fixer" },
-  { id = "mixed-line-ending" },
-  { id = "trailing-whitespace" },
+  # Vendored skills keep upstream whitespace so `just skills-update` patches apply.
+  { id = "end-of-file-fixer", exclude = '^\.claude/skills/' },
+  { id = "mixed-line-ending", exclude = '^\.claude/skills/' },
+  { id = "trailing-whitespace", exclude = '^\.claude/skills/' },
 ]
 
 [[repos]]

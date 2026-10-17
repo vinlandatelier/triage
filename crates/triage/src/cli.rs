@@ -96,11 +96,9 @@ pub fn run(cli: Cli) -> config::Result<()> {
 
 #[expect(clippy::print_stdout, reason = "CLI output")]
 fn logs_path(paths: &Paths) {
-    // A relative --data-dir stays relative in `Paths`; `absolute` only fails without a cwd.
-    let logs = std::path::absolute(&paths.logs).unwrap_or_else(|_| paths.logs.clone());
     println!(
         "{}",
-        telemetry::log_file(&logs, OffsetDateTime::now_utc().date()).display()
+        telemetry::log_file(&paths.logs, OffsetDateTime::now_utc().date()).display()
     );
 }
 

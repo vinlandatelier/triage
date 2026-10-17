@@ -3,12 +3,15 @@ use axum::routing::get;
 use axum::{Json, Router};
 use serde::Serialize;
 
+use super::middleware;
 use super::state::AppState;
 
 pub fn router(state: AppState) -> Router {
-    Router::new()
-        .route("/health", get(health))
-        .with_state(state)
+    middleware::trace(
+        Router::new()
+            .route("/health", get(health))
+            .with_state(state),
+    )
 }
 
 #[derive(Debug, Serialize)]

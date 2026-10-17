@@ -18,8 +18,8 @@ use tracing_subscriber::layer::Context;
 use tracing_subscriber::registry::LookupSpan;
 
 const MODULE_WIDTH: usize = 8;
-/// `HH:MM:SS.mmm LEVEL ` plus the padded module and its two-space gap.
-const MESSAGE_COLUMN: usize = 19 + MODULE_WIDTH + 2;
+/// `HH:MM:SS.mmm LEVEL ` is 19 columns wide.
+const PREFIX_WIDTH: usize = 19;
 
 /// The columnar stderr layer, including the span timer that feeds durations.
 pub fn layer<S, W>(columns: Columns, writer: W, ansi: bool) -> impl Layer<S>
@@ -39,15 +39,15 @@ where
 
 #[derive(Debug, Clone, Copy)]
 pub struct Columns {
-    offset: UtcOffset,
+    offset: fn(OffsetDateTime) -> UtcOffset,
     now: fn() -> OffsetDateTime,
 }
 
 impl Columns {
-    /// Call before spawning threads: `time` refuses to read the local offset once others exist.
     pub fn local() -> Self {
         Self {
-            offset: UtcOffset::current_local_offset().unwrap_or(UtcOffset::UTC),
+            // Per event, so a long-running daemon follows DST changes.
+            offset: |now| UtcOffset::local_offset_at(now).unwrap_or(UtcOffset::UTC),
             now: OffsetDateTime::now_utc,
         }
     }
@@ -83,7 +83,8 @@ where
                 .find_map(|span| span.extensions().get::<RequestId>().map(|id| id.0.clone()))
         });
 
-        let now = (self.now)().to_offset(self.offset);
+        let now = (self.now)();
+        let now = now.to_offset((self.offset)(now));
         write!(
             writer,
             "{:02}:{:02}:{:02}.{:03} ",
@@ -95,6 +96,7 @@ where
         write_level(&mut writer, *meta.level())?;
         let module = meta.target().rsplit("::").next().unwrap_or_default();
         write!(writer, " {module:<MODULE_WIDTH$}  {}", fields.message)?;
+        let indent = PREFIX_WIDTH + module.chars().count().max(MODULE_WIDTH) + 2;
         if !fields.pairs.is_empty() {
             write!(writer, "  {}", fields.pairs)?;
         }
@@ -106,7 +108,7 @@ where
         }
         writeln!(writer)?;
         for source in fields.sources {
-            writeln!(writer, "{:MESSAGE_COLUMN$}└ {source}", "")?;
+            writeln!(writer, "{:indent$}└ {source}", "")?;
         }
         Ok(())
     }
@@ -199,8 +201,25 @@ impl Visit for Fields {
     }
 }
 
+/// Also escapes control characters, so field values cannot move the cursor or recolour a TTY.
 fn one_line(value: impl Display) -> String {
-    value.to_string().replace("\r\n", "⏎").replace('\n', "⏎")
+    let raw = value.to_string();
+    let mut out = String::with_capacity(raw.len());
+    let mut chars = raw.chars().peekable();
+    while let Some(c) = chars.next() {
+        match c {
+            '\r' => {
+                chars.next_if_eq(&'\n');
+                out.push('⏎');
+            }
+            '\n' => out.push('⏎'),
+            c if c.is_control() => {
+                let _ = write!(out, "\\x{:02x}", u32::from(c));
+            }
+            c => out.push(c),
+        }
+    }
+    out
 }
 
 struct HumanDuration(Duration);
@@ -210,7 +229,8 @@ impl Display for HumanDuration {
         let d = self.0;
         if d < Duration::from_millis(1) {
             write!(f, "{}µs", d.as_micros())
-        } else if d < Duration::from_secs(1) {
+        // Below 999.95ms, so rounding never prints `1000.0ms`.
+        } else if d < Duration::from_micros(999_950) {
             write!(f, "{:.1}ms", d.as_secs_f64() * 1000.0)
         } else {
             write!(f, "{:.2}s", d.as_secs_f64())
@@ -285,7 +305,7 @@ mod tests {
         let capture = Capture::default();
         let writer = capture.clone();
         let columns = Columns {
-            offset: UtcOffset::UTC,
+            offset: |_| UtcOffset::UTC,
             now: fixed_clock,
         };
         let subscriber =
@@ -382,6 +402,33 @@ mod tests {
     }
 
     #[test]
+    fn source_lines_align_under_a_long_module() -> TestResult {
+        let err = Chain("save failed", Some(Box::new(Chain("disk full", None))));
+        let out = render(false, || {
+            tracing::error!(target: "triage::middleware", error = &err as &dyn std::error::Error, "write");
+        })?;
+        insta::assert_snapshot!(out, @r"
+        12:34:56.789 ERROR middleware  write  error=save failed
+                                       └ disk full
+        ");
+        Ok(())
+    }
+
+    #[test]
+    fn control_characters_are_escaped() -> TestResult {
+        let out = render(true, || {
+            tracing::info!(target: "triage::mail", subject = "\x1b[2J\x07red\rfake\tx", "got");
+        })?;
+        assert!(
+            out.trim_end()
+                .ends_with(r"subject=\x1b[2J\x07red⏎fake\x09x"),
+            "{out:?}"
+        );
+        assert_eq!(out.matches('\x1b').count(), 2, "{out:?}");
+        Ok(())
+    }
+
+    #[test]
     fn ansi_only_when_enabled() -> TestResult {
         let emit = || tracing::info!("x");
         assert!(!render(false, emit)?.contains('\x1b'));
@@ -394,6 +441,7 @@ mod tests {
         let show = |d| HumanDuration(d).to_string();
         assert_eq!(show(Duration::from_micros(250)), "250µs");
         assert_eq!(show(Duration::from_micros(12_345)), "12.3ms");
+        assert_eq!(show(Duration::from_micros(999_960)), "1.00s");
         assert_eq!(show(Duration::from_millis(2_500)), "2.50s");
     }
 }

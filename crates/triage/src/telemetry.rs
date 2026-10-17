@@ -82,7 +82,6 @@ fn sinks(config: &Config, paths: &Paths) -> Sinks {
         &mut warnings,
     );
 
-    // Before the file writer spawns its thread, so `Columns::local` can read the local offset.
     let mut layers: Vec<BoxedLayer> = vec![stderr_layer(config.log_format, stderr_filter)];
     let worker = match file_appender(&paths.logs) {
         Ok(appender) => {

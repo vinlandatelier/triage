@@ -22,6 +22,7 @@ triage/
       config.rs          env → Config, Paths
       error.rs           AppError → problem+json
       telemetry.rs       tracing layers, dormant otel
+      telemetry/         columns.rs (stderr formatter)
       http/              router.rs state.rs middleware.rs assets.rs
       store/             pool.rs
       guardrails/        placeholder
@@ -113,7 +114,8 @@ On Linux, an unset XDG var falls back to `~/.local/share`, `~/.local/state`, or 
 
 `tracing` is the instrumentation. Three sinks: stderr columnar for humans, JSONL file for agents, and OTLP when `TRIAGE_OTEL_ENDPOINT` is set (not wired yet; the var is parsed but has no effect). `telemetry::init(&Config, &Paths)` installs the subscriber in `cli::run` after `Paths::resolve`, so anything logged during resolution is lost; `config::log_data_dir_override` re-emits the override line afterwards. `cli::run` holds the returned guard until exit; dropping it stops file logging. Completions skip telemetry.
 
-- stderr: filter `TRIAGE_LOG_LEVEL`, format `TRIAGE_LOG_FORMAT` (`columns`, `pretty`, `compact`; `columns` is compact until its formatter lands).
+- stderr: filter `TRIAGE_LOG_LEVEL`, format `TRIAGE_LOG_FORMAT` (`columns`, `pretty`, `compact`). ANSI colour only when stderr is a TTY.
+- `columns` (default) prints `HH:MM:SS.mmm LEVEL module  message  key=value…  duration  req=<id>`. Time is local, with the offset read per event so DST changes apply; it falls back to UTC. Module is the last segment of the target. Newlines in values print as `⏎` and other control characters as `\xNN`. Each `source()` of an event's error field adds an indented `└ ` line; the field must be recorded as `error = &err as &dyn Error`, since `%err` and `?err` lose the chain. A closing span prints its name, its fields, and its wall-clock lifetime since creation; span error fields get no `└ ` lines. `req=` comes from the event's own `request_id` or the nearest span that has one. A span below `TRIAGE_LOG_LEVEL` is invisible to this sink, so its `request_id` never reaches `req=`.
 - JSONL: `<logs>/triage.<YYYY-MM-DD>.jsonl`, daily rotation, 7 files kept, lossless non-blocking writer, filter `TRIAGE_LOG_FILE_LEVEL`. Each line leads with `ts level target message`, then the event fields flattened, then `span` (innermost name), `request_id` (the event's own, else the nearest span that has one), `span_id`, `trace_id` (root span id). Ids are strings and unique only among live spans of one process. `ts` is UTC with 6 sub-second digits. `message` is always a string. An event field named like a reserved key is written as `field.<name>`, prefixed again until the key is free. The file filter also gates spans, so a span below `TRIAGE_LOG_FILE_LEVEL` gives its events no span keys.
 - An unwritable logs dir or an invalid filter logs one warning and continues on stderr or the default filter.
 

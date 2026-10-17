@@ -24,6 +24,8 @@ use tracing_subscriber::{EnvFilter, Layer, Registry};
 
 use crate::config::{self, Config, LogFormat, Paths};
 
+mod columns;
+
 const MAX_LOG_FILES: usize = 7;
 
 // Fixed width so `ts` sorts as text; RFC 3339 trims trailing sub-second zeros.
@@ -80,6 +82,7 @@ fn sinks(config: &Config, paths: &Paths) -> Sinks {
         &mut warnings,
     );
 
+    // Before the file writer spawns its thread, so `Columns::local` can read the local offset.
     let mut layers: Vec<BoxedLayer> = vec![stderr_layer(config.log_format, stderr_filter)];
     let worker = match file_appender(&paths.logs) {
         Ok(appender) => {
@@ -113,13 +116,16 @@ fn filter(var: &str, directives: &str, fallback: &str, warnings: &mut Vec<String
 }
 
 fn stderr_layer(format: LogFormat, filter: EnvFilter) -> BoxedLayer {
+    let ansi = io::stderr().is_terminal();
     let layer = tracing_subscriber::fmt::layer()
         .with_writer(io::stderr)
-        .with_ansi(io::stderr().is_terminal());
+        .with_ansi(ansi);
     match format {
+        LogFormat::Columns => columns::layer(columns::Columns::local(), io::stderr, ansi)
+            .with_filter(filter)
+            .boxed(),
         LogFormat::Pretty => layer.pretty().with_filter(filter).boxed(),
-        // TODO(#15): Columns gets its own formatter.
-        LogFormat::Columns | LogFormat::Compact => layer.compact().with_filter(filter).boxed(),
+        LogFormat::Compact => layer.compact().with_filter(filter).boxed(),
     }
 }
 

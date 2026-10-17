@@ -115,7 +115,8 @@ when no diff line fits.
 
 ## Review assistant
 
-When triggered from a PR comment: make the requested change on the PR branch,
+Triggered by `@vinland-ai`, `/vinland-ai`, or `/vai` in a comment, or by any reply in a
+thread it started. When triggered from a PR comment: make the requested change on the PR branch,
 run the relevant checks, push, restack if the PR has PRs above it, and reply in
 the same thread. Never merge, never touch `master`.
 

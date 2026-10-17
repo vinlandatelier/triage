@@ -47,6 +47,16 @@ pub async fn run(pool: &SqlitePool, sql: &str) -> Result<Rows> {
         1 => {}
         _ => return Err(Error::Input("pass exactly one statement")),
     }
+    // The read-only connection stops writes to the database, but not `VACUUM INTO` or
+    // `ATTACH`, which create other files.
+    if !READ_KEYWORDS
+        .iter()
+        .any(|keyword| leading_keyword(sql).eq_ignore_ascii_case(keyword))
+    {
+        return Err(Error::Input(
+            "only SELECT, WITH, EXPLAIN, VALUES, or PRAGMA statements run here",
+        ));
+    }
     let mut conn = pool.acquire().await.map_err(Error::Query)?;
     // Preparing first keeps the column names when the query returns no rows.
     // Running arbitrary SQL is the point here; the read-only connection is the safety net.
@@ -96,6 +106,26 @@ fn real(value: f64) -> Value {
     } else {
         value.to_string().into()
     }
+}
+
+const READ_KEYWORDS: [&str; 5] = ["SELECT", "WITH", "EXPLAIN", "VALUES", "PRAGMA"];
+
+/// The first word of `sql` after whitespace and comments.
+fn leading_keyword(sql: &str) -> &str {
+    let mut rest = sql;
+    loop {
+        rest = rest.trim_start();
+        if let Some(line) = rest.strip_prefix("--") {
+            rest = line.split_once('\n').map_or("", |(_, after)| after);
+        } else if let Some(block) = rest.strip_prefix("/*") {
+            rest = block.split_once("*/").map_or("", |(_, after)| after);
+        } else {
+            break;
+        }
+    }
+    rest.split(|c: char| !c.is_ascii_alphabetic())
+        .next()
+        .unwrap_or_default()
 }
 
 /// Counts the non-empty statements in `sql`, skipping `;` inside literals, quoted names,
@@ -203,6 +233,36 @@ mod tests {
                 return Err(format!("{sql:?} must be rejected").into());
             };
             assert!(matches!(err, Error::Input(_)), "{sql:?}: {err:?}");
+        }
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn allows_only_reading_statements() -> TestResult {
+        let tmp = tempfile::tempdir()?;
+        let pool = SqlitePool::connect("sqlite::memory:").await?;
+        let copy = tmp.path().join("copy.db");
+        for sql in [
+            format!("VACUUM INTO '{}'", copy.display()),
+            format!("ATTACH '{}' AS other", copy.display()),
+            "DELETE FROM t".to_owned(),
+            "(SELECT 1)".to_owned(),
+        ] {
+            let Err(err) = run(&pool, &sql).await else {
+                return Err(format!("{sql:?} must be rejected").into());
+            };
+            assert!(matches!(err, Error::Input(_)), "{sql:?}: {err:?}");
+        }
+        assert!(!copy.exists());
+        for sql in [
+            "select 1",
+            "-- note\n/* x */ SELECT 1",
+            "WITH a AS (SELECT 1) SELECT * FROM a",
+            "EXPLAIN SELECT 1",
+            "VALUES (1)",
+            "PRAGMA user_version",
+        ] {
+            run(&pool, sql).await?;
         }
         Ok(())
     }

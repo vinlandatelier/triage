@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import { existsSync, mkdtempSync, realpathSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { CliError, configTable, writeOut } from "./cli";
@@ -151,6 +151,45 @@ test("completions for an unknown shell exits 2", async () => {
 test("the generated scripts complete subcommands", async () => {
   const run = await triage(["complete", "--", "con"]);
   expect(run.stdout).toContain("config\t");
+});
+
+test("logs path prints today's JSONL file, which already exists", async () => {
+  const data = join(tempDir(), "fresh");
+  const run = await triage(["logs", "path", "--data-dir", data]);
+  const today = new Date().toISOString().slice(0, 10);
+  expect(run).toEqual({
+    exitCode: 0,
+    stderr: "",
+    stdout: `${data}/logs/triage.${today}.jsonl\n`,
+  });
+  expect(existsSync(run.stdout.trim())).toBe(true);
+});
+
+test("logs path with an unusable logs dir warns once and still prints the path", async () => {
+  const data = tempDir();
+  writeFileSync(join(data, "logs"), "");
+  const run = await triage(["logs", "path", "--data-dir", data]);
+  expect(run.exitCode).toBe(0);
+  expect(run.stdout).toStartWith(`${data}/logs/triage.`);
+  expect(run.stderr.split("\n").filter((line) => line !== "")).toHaveLength(1);
+  expect(run.stderr).toContain(`cannot write log files in ${data}/logs`);
+});
+
+test("logs path with a bad level exits 2", async () => {
+  const run = await triage(["logs", "path", "--data-dir", tempDir()], {
+    env: vars(["TRIAGE_LOG_LEVEL", "nonsense"]),
+  });
+  expect(run.exitCode).toBe(2);
+  expect(run.stderr).toContain("TRIAGE_LOG_LEVEL");
+});
+
+test("logs path logs the data dir override at debug", async () => {
+  const data = tempDir();
+  const run = await triage(["logs", "path", "--data-dir", data], {
+    env: vars(["TRIAGE_DATA_DIR", "/elsewhere"], ["TRIAGE_LOG_LEVEL", "debug"]),
+  });
+  expect(run.stderr).toContain("--data-dir overrides TRIAGE_DATA_DIR");
+  expect(run.stderr).toContain("startup");
 });
 
 test("configTable aligns values after the longest key", () => {

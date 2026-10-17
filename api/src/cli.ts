@@ -3,7 +3,9 @@ import tab from "@bomb.sh/tab/citty";
 import { type ArgsDef, defineCommand, parseArgs, renderUsage, runCommand, runMain } from "citty";
 import packageJson from "../package.json" with { type: "json" };
 import { type Config, configEntries, loadConfig, pathEnv } from "./config";
-import { type Paths, resolvePaths } from "./paths";
+import { createPaths, type Paths, resolvePaths } from "./paths";
+import { initTelemetry, logger, type Telemetry } from "./telemetry";
+import { logFile } from "./telemetry/daily-file";
 
 /** A command failure with its exit code. */
 export class CliError extends Error {
@@ -15,6 +17,8 @@ export class CliError extends Error {
     this.exitCode = exitCode;
   }
 }
+
+const log = logger("cli");
 
 const SHELLS = ["bash", "zsh", "fish"] as const;
 type Shell = (typeof SHELLS)[number];
@@ -88,6 +92,27 @@ async function rootCommand(dataDir: string | undefined) {
           }),
         },
       }),
+      logs: defineCommand({
+        meta: { name: "logs", description: "Locate log files" },
+        args: globalArgs,
+        subCommands: {
+          path: defineCommand({
+            meta: {
+              name: "path",
+              description: "Print the absolute path of today's JSONL log file",
+            },
+            args: globalArgs,
+            async run() {
+              const { paths, telemetry } = await start(dataDir);
+              try {
+                await emit(`${logFile(paths.logs, new Date())}\n`);
+              } finally {
+                await telemetry.close();
+              }
+            },
+          }),
+        },
+      }),
       completions: defineCommand({
         meta: { name: "completions", description: "Print a shell completion script to stdout" },
         args: {
@@ -103,6 +128,23 @@ async function rootCommand(dataDir: string | undefined) {
   // Adds the `complete` command that the generated scripts call on every tab press.
   await tab(root);
   return root;
+}
+
+/** Config, dirs, and telemetry for every command but `config show` and `completions`. */
+async function start(
+  dataDir: string | undefined,
+): Promise<{ readonly config: Config; readonly paths: Paths; readonly telemetry: Telemetry }> {
+  const config = loadConfig();
+  const env = pathEnv();
+  const paths = resolvePaths(dataDir, env);
+  createPaths(paths);
+  const telemetry = await initTelemetry(config, paths);
+  // Resolution ran before the logger existed, so the override line is logged here.
+  if (dataDir !== undefined && env.dataDir !== undefined) {
+    log.debug("--data-dir overrides TRIAGE_DATA_DIR", { flag: dataDir, env: env.dataDir });
+  }
+  log.debug("startup", { config: Object.fromEntries(configEntries(config)), paths });
+  return { config, paths, telemetry };
 }
 
 export function configTable(config: Config, paths: Paths): string {

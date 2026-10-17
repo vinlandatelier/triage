@@ -64,8 +64,12 @@ The worked example arrives with `api/src/features/hello/` in a later slice. Unti
 
 ## Logging
 
-- pino JSON, a request id on every line through `logger.child({ requestId })`. `redact` covers `authorization`, `cookie`, `password`, and `token`. Never log a body. Never pass user-controlled keys to `child()`. Why: OWASP logging, and pino documents the child-binding injection risk.
-- Levels: `error` needs a person, `warn` is degraded but handled, `info` is lifecycle, `debug` is off in release. Why: a level means one thing everywhere.
+- One `const log = logger("<module>")` per module, at module level; call `log.info("message", { fields })`. Never pass a logger as a parameter or import pino. Why: the module logger reads the current span, so every line gets `request_id` without plumbing.
+- `log.withSpan(name, fields, fn)` is the only way to scope or time work. Name spans `<feature>.<verb>` (`hello.create`); put ids in fields (`requestId`); add late values with `span.record({ status })`. Never time work with `performance.now()` by hand. Why: one helper keeps the line shape, `req=`, close durations, and OTLP in one place.
+- Field keys are camelCase; the sinks write them snake_case. The message is a fixed string; values go in fields, never interpolated. Why: agents grep the file by message and key.
+- Log an error as the field `error: err`, after wrapping it with `cause`. Why: both sinks print the whole `cause` chain only from an `Error` value.
+- Never log a request body, a header map, or a `Secret`'s `expose()`. Keys with a segment `authorization`, `cookie`, `password`, `secret`, or `token` print `[redacted]` as a backstop, not a licence. Why: OWASP logging.
+- Levels: `error` needs a person, `warn` is degraded but handled, `info` is lifecycle, `debug` is detail for agents (the file's default), `trace` is off. Why: a level means one thing everywhere.
 
 ## Sources
 

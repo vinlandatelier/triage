@@ -489,6 +489,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "http-serde"
+version = "2.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0f056c8559e3757392c8d091e796416e4649d8e49e88b8d76df6c002f05027fd"
+dependencies = [
+ "http",
+ "serde",
+]
+
+[[package]]
 name = "httparse"
 version = "1.10.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -991,6 +1001,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "problem_details"
+version = "0.11.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6aa844208f6060a0e8f7005be86bf704101b84a5536fe84d9484323da36404eb"
+dependencies = [
+ "axum",
+ "http",
+ "http-serde",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "proc-macro2"
 version = "1.0.107"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1490,8 +1513,10 @@ checksum = "08a05a66a4fdd61cbbe0a1d755ffe0ca6aba159dd4820936a0ff8a8278245b9c"
 dependencies = [
  "bitflags",
  "bytes",
+ "futures-util",
  "http",
  "http-body",
+ "http-body-util",
  "percent-encoding",
  "pin-project-lite",
  "tower-layer",
@@ -1591,6 +1616,7 @@ dependencies = [
 name = "triage"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "axum",
  "clap",
  "clap_complete",
@@ -1601,6 +1627,7 @@ dependencies = [
  "opentelemetry",
  "opentelemetry-otlp",
  "opentelemetry_sdk",
+ "problem_details",
  "serde",
  "serde_json",
  "tempfile",

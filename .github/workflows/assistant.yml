@@ -169,7 +169,9 @@ jobs:
         env:
           BODY: ${{ github.event.comment.body }}
         run: |
-          printf '%s' "$BODY" | grep -qE '(^|[[:space:]])/vai squash([[:space:].,!?;:]|$)' && echo "hit=true" >> "$GITHUB_OUTPUT" || true
+          if printf '%s' "$BODY" | grep -qE '(^|[[:space:]])/vai squash([[:space:].,!?;:]|$)'; then
+            echo "hit=true" >> "$GITHUB_OUTPUT"
+          fi
 
       - if: steps.trigger.outputs.hit
         uses: actions/create-github-app-token@v1

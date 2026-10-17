@@ -64,8 +64,6 @@ jobs:
         with:
           app-id: ${{ secrets.ASSISTANT_APP_ID }}
           private-key: ${{ secrets.ASSISTANT_APP_PRIVATE_KEY }}
-          owner: ${{ github.repository_owner }}
-          repositories: ${{ github.event.repository.name }},${{ github.event.repository.name }}-assets
 
       - id: root
         env:

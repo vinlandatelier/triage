@@ -1,0 +1,62 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT id AS \"id: HelloId\", name AS \"name: HelloName\",\n                  created_at AS \"created_at: OffsetDateTime\",\n                  updated_at AS \"updated_at: OffsetDateTime\"\n           FROM hello WHERE id = ?",
+  "describe": {
+    "columns": [
+      {
+        "name": "id: HelloId",
+        "ordinal": 0,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "hello",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "name": "name: HelloName",
+        "ordinal": 1,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "hello",
+            "name": "name"
+          }
+        }
+      },
+      {
+        "name": "created_at: OffsetDateTime",
+        "ordinal": 2,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "hello",
+            "name": "created_at"
+          }
+        }
+      },
+      {
+        "name": "updated_at: OffsetDateTime",
+        "ordinal": 3,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "hello",
+            "name": "updated_at"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "e0c1d4ea7a32486d86eb418c787a9241692f9d1c4a026fc1a75d6ff88ad56208"
+}

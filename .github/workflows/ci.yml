@@ -57,6 +57,17 @@ jobs:
           tool: just,cargo-machete
       - run: just machete
 
+  sqlx:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: just,sqlx-cli
+      - run: just db-prepare-check
+
   test:
     strategy:
       fail-fast: false

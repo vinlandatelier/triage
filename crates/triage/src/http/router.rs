@@ -10,6 +10,7 @@ use utoipa_axum::routes;
 use super::middleware;
 use super::openapi;
 use super::state::AppState;
+use crate::features;
 
 pub fn router(state: AppState) -> Router {
     let (routes, doc) = routes().split_for_parts();
@@ -37,7 +38,9 @@ fn scalar(routes: Router<AppState>, _: &OpenApi) -> Router<AppState> {
 
 /// Every documented route. [`openapi::api_doc`] reads the spec from the same value.
 pub(super) fn routes() -> OpenApiRouter<AppState> {
-    OpenApiRouter::with_openapi(openapi::base()).routes(routes!(health))
+    OpenApiRouter::with_openapi(openapi::base())
+        .routes(routes!(health))
+        .merge(features::routes())
 }
 
 #[derive(Debug, Serialize, ToSchema)]

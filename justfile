@@ -134,7 +134,10 @@ setup:
         exit 1
     fi
 
-    bun install --frozen-lockfile && prek install --install-hooks
+    bun install --frozen-lockfile
+    # The root has no node_modules/.bin under the isolated linker, so bunx would fetch the latest playwright.
+    (cd web && bunx playwright install chromium)
+    prek install --install-hooks
 
 # Run every quality gate.
 check: fmt-check clippy check-layout deny machete db-prepare-check test check-web gen-api-check
@@ -164,6 +167,10 @@ check-web:
     bun run doctor
     bun run knip
     bun run test
+
+# Run the browser tests against a fresh release build.
+e2e: build
+    bun run e2e
 
 # Build the web UI into web/dist.
 build-web:

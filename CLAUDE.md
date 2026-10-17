@@ -22,6 +22,7 @@ Fresh clone: `just setup && just check`. CI runs the same recipes.
 | `just fmt-check` / `clippy` / `check-layout` / `test` | one Rust gate on its own; `test` is nextest |
 | `just deny` / `machete` | after adding or removing a Rust dependency |
 | `just check-web` | every web gate: lint, typecheck, doctor, knip, test |
+| `just hooks` | every prek commit hook on the whole tree, as CI runs it |
 | `just e2e` | Playwright against a fresh release build, after a UI flow changes |
 | `just build-web` / `build` | `web/dist/`, then the release binary with it embedded |
 | `just openapi` / `openapi-check` | after a route or response type changes |
@@ -103,7 +104,7 @@ Copy `features/hello/` on both sides for a new feature.
 - PR body: `Closes #N`, then `## what` (bullets), `## verify` (numbered steps),
   and `## why` / `## notes` only when needed. Bullets over paragraphs.
 - Comments explain non-obvious why only. No restating code, no banners.
-- A `just` recipe longer than about 5 lines moves to `scripts/<recipe>.sh`; the
+- A `just` recipe longer than about 10 lines moves to `scripts/<recipe>.sh`; the
   recipe calls it.
 - Documentation names no individual people. Use "the maintainer" or "the user".
 - When a question needs a person, mention whoever has the most context: the PR

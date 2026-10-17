@@ -1,7 +1,6 @@
 //! The daemon: a localhost HTTP server guarded by a lock on the data dir.
 
 use std::fs::{File, OpenOptions, TryLockError};
-use std::future::Future;
 use std::io;
 use std::net::{Ipv4Addr, SocketAddr};
 use std::path::{Path, PathBuf};
@@ -10,17 +9,20 @@ use std::time::Duration;
 use axum::Router;
 use time::OffsetDateTime;
 use tokio::net::TcpListener;
+use tokio::sync::{mpsc, oneshot};
 
 use crate::config::{Config, Paths};
 use crate::{store, telemetry};
 
 mod assets;
+mod json;
 mod middleware;
 mod openapi;
 mod probe;
 mod router;
 mod state;
 
+pub use json::Json;
 pub use openapi::{api_doc, api_json};
 pub use probe::{Health, probe};
 pub use router::router;
@@ -54,16 +56,28 @@ impl Error {
 
 pub type Result<T, E = Error> = std::result::Result<T, E>;
 
-/// Runs in the foreground until SIGINT or SIGTERM, then drains for up to 10 s.
-pub fn serve(config: Config, paths: Paths) -> Result<()> {
-    // The OS drops the lock when the process dies, so a crash never leaves it stale.
-    let _lock = lock(&paths.lock_file(), &paths.data)?;
+/// Proof that this process owns the data dir. The OS drops it when the process dies, so a crash
+/// never leaves it stale.
+#[derive(Debug)]
+#[must_use = "dropping the lock lets another instance use the data dir"]
+pub struct Lock {
+    _file: File,
+}
+
+pub fn lock_data_dir(paths: &Paths) -> Result<Lock> {
+    let file = lock(&paths.lock_file(), &paths.data)?;
+    Ok(Lock { _file: file })
+}
+
+/// Runs in the foreground until SIGINT or SIGTERM, then drains for up to 10 s. A second
+/// signal during the drain exits at once.
+pub fn serve(config: Config, paths: Paths, _lock: Lock) -> Result<()> {
     let runtime = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()
         .map_err(Error::Runtime)?;
     let result = runtime.block_on(async {
-        let shutdown = shutdown_signal();
+        let signals = shutdown_signals();
         let store = store::open(&paths).await?;
         let (listener, addr) = bind(config.port).await?;
         tracing::info!(
@@ -74,11 +88,15 @@ pub fn serve(config: Config, paths: Paths) -> Result<()> {
             log = %telemetry::log_file(&paths.logs, OffsetDateTime::now_utc().date()).display(),
             "listening"
         );
-        let state = AppState::new(config, paths, store);
+        let state = AppState::new(config, paths, store.clone());
         let started = state.started;
-        let result = serve_until(listener, router(state), shutdown, DRAIN).await;
+        let result = serve_until(listener, router(state), signals, DRAIN).await;
+        // A cut drain leaves requests holding connections, and `close` would wait for them.
+        if matches!(result, Ok(Stopped::Drained)) {
+            store.close().await;
+        }
         tracing::info!(uptime_s = started.elapsed().as_secs(), "stopped");
-        result
+        result.map(drop)
     });
     // A plain drop waits forever on blocking tasks, which would break the drain cap.
     runtime.shutdown_timeout(Duration::from_secs(1));
@@ -121,40 +139,55 @@ async fn bind(port: u16) -> Result<(TcpListener, SocketAddr)> {
     Ok((listener, bound))
 }
 
-/// Stops accepting once `shutdown` resolves, then waits up to `drain` for open requests.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Stopped {
+    /// Every open request finished.
+    Drained,
+    /// The drain window ran out or a second signal arrived.
+    Cut,
+}
+
+/// Stops accepting on the first message from `signals`, then waits up to `drain` for open
+/// requests, or until the next message.
 async fn serve_until(
     listener: TcpListener,
     router: Router,
-    shutdown: impl Future<Output = ()> + Send + 'static,
+    mut signals: mpsc::UnboundedReceiver<()>,
     drain: Duration,
-) -> Result<()> {
-    let (signalled, on_signal) = tokio::sync::oneshot::channel();
+) -> Result<Stopped> {
+    let (signalled, on_signal) = oneshot::channel();
     let server = axum::serve(listener, router).with_graceful_shutdown(async move {
-        shutdown.await;
+        if signals.recv().await.is_none() {
+            std::future::pending::<()>().await;
+        }
         tracing::info!(drain_s = drain.as_secs(), "shutting down");
-        let _ = signalled.send(());
+        let _ = signalled.send(signals);
     });
     let deadline = async move {
         // A dropped sender means the server ended on its own; the select takes that branch.
-        if on_signal.await.is_ok() {
-            tokio::time::sleep(drain).await;
-        } else {
-            std::future::pending::<()>().await;
+        let Ok(mut signals) = on_signal.await else {
+            return std::future::pending::<()>().await;
+        };
+        tokio::select! {
+            () = tokio::time::sleep(drain) => {
+                tracing::warn!("open requests did not finish within the drain window");
+            }
+            Some(()) = signals.recv() => {
+                tracing::warn!("second signal: exiting without waiting for open requests");
+            }
         }
     };
     tokio::select! {
-        result = server => result.map_err(Error::Serve),
-        () = deadline => {
-            tracing::warn!("open requests did not finish within the drain window");
-            Ok(())
-        }
+        result = server => result.map(|()| Stopped::Drained).map_err(Error::Serve),
+        () = deadline => Ok(Stopped::Cut),
     }
 }
 
-/// Registers the handlers before the future is polled: axum only polls it after it starts
-/// accepting, and a SIGTERM in that gap would kill the process without a drain.
+/// Registers the handlers before axum polls anything: it only polls the shutdown future
+/// after it starts accepting, and a SIGTERM in that gap would kill the process without a
+/// drain. Each SIGINT or SIGTERM sends one message.
 #[cfg(unix)]
-fn shutdown_signal() -> impl Future<Output = ()> + Send + 'static {
+fn shutdown_signals() -> mpsc::UnboundedReceiver<()> {
     use tokio::signal::unix::{Signal, SignalKind, signal};
 
     fn listen(kind: SignalKind, name: &'static str) -> Option<Signal> {
@@ -169,36 +202,51 @@ fn shutdown_signal() -> impl Future<Output = ()> + Send + 'static {
             .ok()
     }
 
-    async fn recv(signal: Option<Signal>) {
-        match signal {
-            Some(mut signal) => {
-                signal.recv().await;
-            }
-            None => std::future::pending().await,
-        }
-    }
-
-    let interrupt = listen(SignalKind::interrupt(), "SIGINT");
-    let terminate = listen(SignalKind::terminate(), "SIGTERM");
-    async move {
-        tokio::select! {
-            () = recv(interrupt) => {}
-            () = recv(terminate) => {}
-        }
-    }
-}
-
-#[cfg(not(unix))]
-fn shutdown_signal() -> impl Future<Output = ()> + Send + 'static {
-    async {
-        if let Err(err) = tokio::signal::ctrl_c().await {
-            tracing::warn!(
-                error = &err as &dyn std::error::Error,
-                "cannot listen for ctrl-c"
-            );
+    async fn recv(signal: &mut Option<Signal>) {
+        let received = match signal {
+            Some(signal) => signal.recv().await.is_some(),
+            None => false,
+        };
+        if !received {
             std::future::pending::<()>().await;
         }
     }
+
+    let mut interrupt = listen(SignalKind::interrupt(), "SIGINT");
+    let mut terminate = listen(SignalKind::terminate(), "SIGTERM");
+    let (send, receive) = mpsc::unbounded_channel();
+    tokio::spawn(async move {
+        loop {
+            tokio::select! {
+                () = recv(&mut interrupt) => {}
+                () = recv(&mut terminate) => {}
+            }
+            if send.send(()).is_err() {
+                break;
+            }
+        }
+    });
+    receive
+}
+
+#[cfg(not(unix))]
+fn shutdown_signals() -> mpsc::UnboundedReceiver<()> {
+    let (send, receive) = mpsc::unbounded_channel();
+    tokio::spawn(async move {
+        loop {
+            if let Err(err) = tokio::signal::ctrl_c().await {
+                tracing::warn!(
+                    error = &err as &dyn std::error::Error,
+                    "cannot listen for ctrl-c"
+                );
+                break;
+            }
+            if send.send(()).is_err() {
+                break;
+            }
+        }
+    });
+    receive
 }
 
 #[cfg(test)]
@@ -208,7 +256,7 @@ mod tests {
     use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
     use tokio::net::TcpStream;
 
-    use tokio::sync::{Notify, oneshot};
+    use tokio::sync::Notify;
 
     use super::*;
 
@@ -246,13 +294,11 @@ mod tests {
     async fn health_reports_status_version_and_uptime() -> TestResult {
         let tmp = tempfile::tempdir()?;
         let (listener, addr) = local_listener().await?;
-        let (stop, stopped) = oneshot::channel::<()>();
+        let (stop, signals) = mpsc::unbounded_channel();
         let server = tokio::spawn(serve_until(
             listener,
             router(state(tmp.path()).await?),
-            async {
-                let _ = stopped.await;
-            },
+            signals,
             DRAIN,
         ));
         let response = get_path(addr, "/health").await?;
@@ -284,15 +330,8 @@ mod tests {
                 }
             }),
         );
-        let (stop, stopped) = oneshot::channel::<()>();
-        let server = tokio::spawn(serve_until(
-            listener,
-            slow,
-            async {
-                let _ = stopped.await;
-            },
-            DRAIN,
-        ));
+        let (stop, signals) = mpsc::unbounded_channel();
+        let server = tokio::spawn(serve_until(listener, slow, signals, DRAIN));
         let request = tokio::spawn(get_path(addr, "/slow"));
         entered.notified().await;
         let _ = stop.send(());
@@ -300,13 +339,11 @@ mod tests {
         let response = request.await??;
         assert!(response.starts_with("HTTP/1.1 200"), "{response}");
         assert!(response.ends_with("done"), "{response}");
-        server.await??;
+        assert_eq!(server.await??, Stopped::Drained);
         Ok(())
     }
 
-    #[tokio::test]
-    async fn drain_window_caps_shutdown() -> TestResult {
-        let (listener, addr) = local_listener().await?;
+    fn hanging() -> (Router, Arc<Notify>) {
         let entered = Arc::new(Notify::new());
         let notify = Arc::clone(&entered);
         let hang = Router::new().route(
@@ -316,22 +353,38 @@ mod tests {
                 std::future::pending::<&str>()
             }),
         );
+        (hang, entered)
+    }
+
+    #[tokio::test]
+    async fn drain_window_caps_shutdown() -> TestResult {
+        let (listener, addr) = local_listener().await?;
+        let (hang, entered) = hanging();
         let drain = Duration::from_millis(50);
-        let (stop, stopped) = oneshot::channel::<()>();
-        let server = tokio::spawn(serve_until(
-            listener,
-            hang,
-            async {
-                let _ = stopped.await;
-            },
-            drain,
-        ));
+        let (stop, signals) = mpsc::unbounded_channel();
+        let server = tokio::spawn(serve_until(listener, hang, signals, drain));
         let _request = tokio::spawn(get_path(addr, "/hang"));
         entered.notified().await;
         let stopping = std::time::Instant::now();
         let _ = stop.send(());
-        tokio::time::timeout(Duration::from_secs(5), server).await???;
+        let stopped = tokio::time::timeout(Duration::from_secs(5), server).await???;
+        assert_eq!(stopped, Stopped::Cut);
         assert!(stopping.elapsed() >= drain, "{:?}", stopping.elapsed());
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn second_signal_cuts_the_drain() -> TestResult {
+        let (listener, addr) = local_listener().await?;
+        let (hang, entered) = hanging();
+        let (stop, signals) = mpsc::unbounded_channel();
+        let server = tokio::spawn(serve_until(listener, hang, signals, DRAIN));
+        let _request = tokio::spawn(get_path(addr, "/hang"));
+        entered.notified().await;
+        let _ = stop.send(());
+        let _ = stop.send(());
+        let stopped = tokio::time::timeout(Duration::from_secs(5), server).await???;
+        assert_eq!(stopped, Stopped::Cut);
         Ok(())
     }
 

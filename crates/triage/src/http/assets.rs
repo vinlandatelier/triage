@@ -1,6 +1,6 @@
 //! The web UI from `web/dist/`: embedded in release builds, read from disk in debug builds.
 
-use axum::http::{Uri, header};
+use axum::http::{Method, Uri, header};
 use axum::response::{IntoResponse as _, Response};
 use rust_embed::{EmbeddedFile, RustEmbed};
 
@@ -22,10 +22,17 @@ const IMMUTABLE: &str = "public, max-age=31536000, immutable";
 const NO_CACHE: &str = "no-cache";
 
 /// Unknown `/api` paths answer with a problem; every other path belongs to the web UI.
-pub async fn fallback(uri: Uri) -> Response {
+pub async fn fallback(method: Method, uri: Uri) -> Response {
     let path = uri.path();
     if path == "/api" || path.starts_with("/api/") {
         return AppError::NotFound(format!("no route for {path}")).into_response();
+    }
+    if method != Method::GET && method != Method::HEAD {
+        return (
+            [(header::ALLOW, "GET, HEAD")],
+            AppError::MethodNotAllowed(format!("{method} is not allowed on {path}")),
+        )
+            .into_response();
     }
     serve::<Dist>(path)
 }
@@ -135,7 +142,7 @@ mod tests {
     #[tokio::test]
     async fn api_paths_never_fall_through() -> TestResult {
         for path in ["/api", "/api/nope"] {
-            let response = fallback(Uri::from_static(path)).await;
+            let response = fallback(Method::POST, Uri::from_static(path)).await;
             assert_problem(&response);
             assert!(
                 body(response)
@@ -144,8 +151,26 @@ mod tests {
             );
         }
         // A path that only starts with the letters `api` is a client route.
-        let response = fallback(Uri::from_static("/apix")).await;
+        let response = fallback(Method::GET, Uri::from_static("/apix")).await;
         assert!(!body(response).await?.contains("no route for"));
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn ui_paths_answer_only_get_and_head() -> TestResult {
+        for method in [Method::POST, Method::PUT, Method::DELETE] {
+            let response = fallback(method.clone(), Uri::from_static("/some/route")).await;
+            assert_eq!(
+                response.status(),
+                StatusCode::METHOD_NOT_ALLOWED,
+                "{method}"
+            );
+            assert_eq!(header(&response, header::ALLOW), Some("GET, HEAD"));
+            assert_eq!(
+                header(&response, header::CONTENT_TYPE),
+                Some("application/problem+json")
+            );
+        }
         Ok(())
     }
 }

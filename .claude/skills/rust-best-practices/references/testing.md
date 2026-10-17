@@ -112,7 +112,7 @@ proptest! {
         match Username::try_new(&s) {
             Ok(username) => {
                 // Valid usernames survive a roundtrip
-                assert_eq!(Username::try_new(username.as_str()).unwrap(), username);
+                prop_assert_eq!(Username::try_new(username.as_str())?, username);
             }
             Err(_) => assert!(Username::try_new(&s).is_err()),
         }
@@ -121,9 +121,9 @@ proptest! {
     // Serialization roundtrips
     #[test]
     fn json_roundtrip(value in any::<MyType>()) {
-        let json = serde_json::to_string(&value).unwrap();
-        let decoded: MyType = serde_json::from_str(&json).unwrap();
-        assert_eq!(value, decoded);
+        let json = serde_json::to_string(&value)?;
+        let decoded: MyType = serde_json::from_str(&json)?;
+        prop_assert_eq!(value, decoded);
     }
 }
 ```

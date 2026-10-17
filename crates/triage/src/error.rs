@@ -19,6 +19,8 @@ pub enum AppError {
     #[error("the request is invalid")]
     Validation(Vec<FieldError>),
     #[error("{0}")]
+    MethodNotAllowed(String),
+    #[error("{0}")]
     Conflict(String),
     #[error("the request body is larger than {BODY_LIMIT} bytes")]
     PayloadTooLarge,
@@ -73,6 +75,7 @@ impl AppError {
         match self {
             Self::NotFound(_) => StatusCode::NOT_FOUND,
             Self::Validation(_) => StatusCode::UNPROCESSABLE_ENTITY,
+            Self::MethodNotAllowed(_) => StatusCode::METHOD_NOT_ALLOWED,
             Self::Conflict(_) => StatusCode::CONFLICT,
             Self::PayloadTooLarge => StatusCode::PAYLOAD_TOO_LARGE,
             Self::Internal(_) | Self::Db(_) => StatusCode::INTERNAL_SERVER_ERROR,
@@ -83,6 +86,7 @@ impl AppError {
         match self {
             Self::NotFound(_) => "not-found",
             Self::Validation(_) => "validation",
+            Self::MethodNotAllowed(_) => "method-not-allowed",
             Self::Conflict(_) => "conflict",
             Self::PayloadTooLarge => "payload-too-large",
             Self::Internal(_) | Self::Db(_) => "internal",
@@ -93,6 +97,7 @@ impl AppError {
         match self {
             Self::NotFound(_) => "Not found",
             Self::Validation(_) => "Validation failed",
+            Self::MethodNotAllowed(_) => "Method not allowed",
             Self::Conflict(_) => "Conflict",
             Self::PayloadTooLarge => "Payload too large",
             Self::Internal(_) | Self::Db(_) => "Internal error",

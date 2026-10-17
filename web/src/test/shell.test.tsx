@@ -3,7 +3,7 @@ import { createMemoryHistory, RouterProvider } from "@tanstack/react-router";
 import { render, screen } from "@testing-library/react";
 import { HttpResponse } from "msw";
 import { test } from "vitest";
-import type { HelloListResponse } from "@/api";
+import { helloList } from "@/api";
 import { ThemeProvider } from "@/components/theme-provider";
 import { createQueryClient } from "@/query";
 import { createAppRouter } from "@/router";
@@ -26,7 +26,7 @@ function renderAt(path: string) {
 }
 
 test("renders the shell header and home page", async () => {
-  server.use(mock<HelloListResponse>("get", "/api/hello", () => HttpResponse.json([])));
+  server.use(mock(helloList, () => HttpResponse.json([])));
   renderAt("/");
   await screen.findByRole("heading", { name: "Hello" });
   screen.getByRole("link", { name: "Triage" });

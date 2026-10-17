@@ -107,7 +107,7 @@ where
             write!(writer, "  {}", HumanDuration(elapsed))?;
         }
         if let Some(id) = request_id {
-            write!(writer, "  req={id}")?;
+            write!(writer, "  req={}", quoted(id))?;
         }
         writeln!(writer)?;
         for source in fields.sources {
@@ -179,7 +179,7 @@ impl Fields {
                 if !self.pairs.is_empty() {
                     self.pairs.push(' ');
                 }
-                let _ = write!(self.pairs, "{name}={value}");
+                let _ = write!(self.pairs, "{name}={}", quoted(value));
             }
         }
     }
@@ -225,6 +225,15 @@ pub(crate) fn one_line(value: impl Display) -> String {
     out
 }
 
+// Unquoted, `a="x req=evil"` would read as a second field and spoof `req=`.
+fn quoted(value: String) -> String {
+    if value.contains(|c: char| c.is_whitespace() || c == '=' || c == '"') {
+        format!("{value:?}")
+    } else {
+        value
+    }
+}
+
 struct HumanDuration(Duration);
 
 impl Display for HumanDuration {
@@ -244,6 +253,23 @@ impl Display for HumanDuration {
 struct Started(Instant);
 struct RequestId(String);
 
+#[derive(Default)]
+struct RequestIdVisitor(Option<String>);
+
+impl Visit for RequestIdVisitor {
+    fn record_str(&mut self, field: &Field, value: &str) {
+        if field.name() == "request_id" {
+            self.0 = Some(one_line(value));
+        }
+    }
+
+    fn record_debug(&mut self, field: &Field, value: &dyn fmt::Debug) {
+        if field.name() == "request_id" {
+            self.0 = Some(one_line(format_args!("{value:?}")));
+        }
+    }
+}
+
 /// Stamps each span with its start time and `request_id` for [`Columns`] to read back.
 struct SpanTimer;
 
@@ -255,18 +281,18 @@ where
         let Some(span) = ctx.span(id) else { return };
         let mut ext = span.extensions_mut();
         ext.replace(Started(Instant::now()));
-        let mut fields = Fields::default();
-        attrs.record(&mut fields);
-        if let Some(request_id) = fields.request_id {
+        let mut visitor = RequestIdVisitor::default();
+        attrs.record(&mut visitor);
+        if let Some(request_id) = visitor.0 {
             ext.replace(RequestId(request_id));
         }
     }
 
     fn on_record(&self, id: &Id, values: &Record<'_>, ctx: Context<'_, S>) {
         let Some(span) = ctx.span(id) else { return };
-        let mut fields = Fields::default();
-        values.record(&mut fields);
-        if let Some(request_id) = fields.request_id {
+        let mut visitor = RequestIdVisitor::default();
+        values.record(&mut visitor);
+        if let Some(request_id) = visitor.0 {
             span.extensions_mut().replace(RequestId(request_id));
         }
     }
@@ -396,11 +422,11 @@ mod tests {
         let out = render(false, || {
             tracing::error!(target: "triage::store", error = &err as &dyn std::error::Error, "write");
         })?;
-        insta::assert_snapshot!(out, @r"
-        12:34:56.789 ERROR store     write  error=save failed
+        insta::assert_snapshot!(out, @r#"
+        12:34:56.789 ERROR store     write  error="save failed"
                                      └ disk full
                                      └ quota exceeded
-        ");
+        "#);
         Ok(())
     }
 
@@ -419,10 +445,10 @@ mod tests {
         let out = render(false, || {
             tracing::error!(target: "triage::middleware", error = &err as &dyn std::error::Error, "write");
         })?;
-        insta::assert_snapshot!(out, @r"
-        12:34:56.789 ERROR middleware  write  error=save failed
+        insta::assert_snapshot!(out, @r#"
+        12:34:56.789 ERROR middleware  write  error="save failed"
                                        └ disk full
-        ");
+        "#);
         Ok(())
     }
 
@@ -437,6 +463,15 @@ mod tests {
             "{out:?}"
         );
         assert_eq!(out.matches('\x1b').count(), 2, "{out:?}");
+        Ok(())
+    }
+
+    #[test]
+    fn values_with_spaces_equals_or_quotes_are_quoted() -> TestResult {
+        let out = render(false, || {
+            tracing::info!(target: "triage::x", a = "x req=evil", b = "k=v", c = "say \"hi\"", d = "plain", "m");
+        })?;
+        insta::assert_snapshot!(out, @r#"12:34:56.789 INFO  x         m  a="x req=evil" b="k=v" c="say \"hi\"" d=plain"#);
         Ok(())
     }
 

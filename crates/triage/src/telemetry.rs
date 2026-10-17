@@ -22,7 +22,7 @@ use tracing_subscriber::registry::LookupSpan;
 use tracing_subscriber::util::SubscriberInitExt as _;
 use tracing_subscriber::{EnvFilter, Layer, Registry};
 
-use crate::config::{self, Config, LogFormat, Paths};
+use crate::config::{self, Config, LogFormat, OtelEndpoint, Paths};
 
 mod columns;
 mod otel;
@@ -80,7 +80,7 @@ pub fn init(config: &Config, paths: &Paths) -> Guard {
 }
 
 fn sinks(config: &Config, paths: &Paths) -> Sinks {
-    let mut warnings = Vec::new();
+    let mut warnings = config.warnings.clone();
     let stderr_filter = filter(
         "TRIAGE_LOG_LEVEL",
         &config.log_level,
@@ -111,7 +111,8 @@ fn sinks(config: &Config, paths: &Paths) -> Sinks {
         }
     };
 
-    let otel = otel::layer(config.otel_endpoint.as_ref(), &mut warnings).map(|(layer, otel)| {
+    let traces = config.otel_endpoint.as_ref().map(OtelEndpoint::traces);
+    let otel = otel::layer(traces, &mut warnings).map(|(layer, otel)| {
         // Same directives as the file, which already warned if they were invalid.
         let filter = EnvFilter::try_new(&config.log_file_level)
             .unwrap_or_else(|_| EnvFilter::new(&Config::default().log_file_level));

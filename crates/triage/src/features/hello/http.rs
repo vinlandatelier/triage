@@ -1,4 +1,3 @@
-use axum::Json;
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use serde::{Deserialize, Serialize};
@@ -10,7 +9,7 @@ use utoipa_axum::routes;
 use super::model::{Hello, HelloId, HelloName, NewHello};
 use super::service;
 use crate::error::{AppError, Result};
-use crate::http::AppState;
+use crate::http::{AppState, Json};
 
 const LIST_LIMIT: u32 = 20;
 

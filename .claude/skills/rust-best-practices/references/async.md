@@ -172,7 +172,7 @@ rayon::spawn(move || {
     let sum: i32 = nums.par_iter().sum();
     let _ = send.send(sum);
 });
-recv.await.expect("rayon task panicked")
+let sum = recv.await.context("rayon task panicked")?;
 ```
 
 ## Mutex Comparison
@@ -193,11 +193,11 @@ Choosing the wrong mutex is a common source of bugs. See also `send-sync.md` for
 2. **Holding across `.await` deadlocks** — the task holding the lock may need to resume on the very thread that's blocked waiting for it. (`std::sync::MutexGuard` is also `!Send`, so this usually fails to compile under a multi-threaded runtime.)
 
 ```rust
-use std::sync::Mutex;
+use std::sync::{Mutex, PoisonError};
 
 // ❌ BAD - guard held across await: deadlock risk, and the future is !Send
 async fn bad(mutex: &Mutex<i32>) {
-    let mut guard = mutex.lock().unwrap();
+    let mut guard = mutex.lock().unwrap_or_else(PoisonError::into_inner);
     *guard += 1;
     do_async_work().await;  // guard still held across .await
 }
@@ -205,7 +205,7 @@ async fn bad(mutex: &Mutex<i32>) {
 // ✅ GOOD - copy/clone what you need, drop the guard, then await
 async fn good(mutex: &Mutex<i32>) {
     let value = {
-        let mut guard = mutex.lock().unwrap();
+        let mut guard = mutex.lock().unwrap_or_else(PoisonError::into_inner);
         *guard += 1;
         *guard
     };  // guard dropped here

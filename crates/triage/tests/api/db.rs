@@ -60,7 +60,10 @@ fn check_and_sql_need_an_existing_db() -> TestResult {
 fn sql_rejects_writes() -> TestResult {
     let tmp = tempfile::tempdir()?;
     assert!(db(tmp.path(), &["migrate"])?.status.success());
-    let out = db(tmp.path(), &["sql", "DELETE FROM _sqlx_migrations"])?;
+    let out = db(
+        tmp.path(),
+        &["sql", "WITH x AS (SELECT 1) DELETE FROM _sqlx_migrations"],
+    )?;
     assert!(!out.status.success(), "{out:?}");
     let stderr = String::from_utf8(out.stderr)?;
     assert!(stderr.contains("readonly database"), "{stderr}");

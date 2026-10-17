@@ -99,7 +99,7 @@ This works because `Infallible` is uninhabited (has no values), so the `Err` cas
 
 | Mistake | Fix |
 |---------|-----|
-| `.unwrap()` or `.expect()` in production runtime | Use `?` or proper error handling |
+| `.unwrap()` or `.expect()` anywhere, tests included | Use `?` or proper error handling |
 | `anyhow` in library public API | Use `thiserror` for typed errors |
 | Swallowing errors with `.ok()` | Log or propagate |
 | Generic error messages | Use a specific `AppError` variant with a message that names the input |

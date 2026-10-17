@@ -58,3 +58,23 @@ pub async fn get(pool: &SqlitePool, id: HelloId) -> Result<Option<Hello>> {
     .fetch_optional(pool)
     .await?)
 }
+
+#[cfg(test)]
+mod tests {
+    use time::macros::datetime;
+
+    use super::*;
+
+    #[test]
+    fn timestamp_keeps_trailing_zeros() -> Result<()> {
+        assert_eq!(
+            timestamp(datetime!(2026-01-02 03:04:00 UTC))?,
+            "2026-01-02T03:04:00.000Z"
+        );
+        assert_eq!(
+            timestamp(datetime!(2026-01-02 13:04:05.1 +10:00))?,
+            "2026-01-02T03:04:05.100Z"
+        );
+        Ok(())
+    }
+}

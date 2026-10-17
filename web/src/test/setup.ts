@@ -1,3 +1,4 @@
+import "@/api-setup";
 import { cleanup } from "@testing-library/react";
 import { setupServer } from "msw/node";
 import { afterAll, afterEach, beforeAll } from "vitest";
@@ -31,16 +32,23 @@ async function failOnUnhandled() {
     throw new Error(`request without an MSW handler: ${unhandled.join(", ")}`);
 }
 
+// Wait before resetHandlers(), or a request still in flight finds no handler and fails the wrong way.
 afterEach(async () => {
-  cleanup();
-  server.resetHandlers();
-  localStorage.clear();
-  document.documentElement.className = "";
-  await failOnUnhandled();
+  try {
+    await failOnUnhandled();
+  } finally {
+    cleanup();
+    server.resetHandlers();
+    localStorage.clear();
+    document.documentElement.className = "";
+  }
 });
 afterAll(async () => {
-  await failOnUnhandled();
-  server.close();
+  try {
+    await failOnUnhandled();
+  } finally {
+    server.close();
+  }
 });
 
 // jsdom lacks matchMedia and its scrollTo only logs "not implemented". The router scrolls on navigation;

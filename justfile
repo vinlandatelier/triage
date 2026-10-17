@@ -21,25 +21,35 @@ setup:
 # Run every quality gate.
 check: fmt-check clippy check-layout deny machete db-prepare-check test check-web gen-api-check
 
+# Check Rust formatting.
 fmt-check:
     cargo fmt --all --check
 
+# Lint Rust with warnings denied.
 clippy:
     cargo clippy --workspace --all-targets --locked -- -D warnings
+
+# Run every prek commit hook on the whole tree.
+hooks:
+    prek run --all-files
 
 # Fail on any breach of the layout rules in docs/ARCHITECTURE.md.
 check-layout:
     scripts/check-layout.sh
 
+# Check licenses, advisories, bans, and sources.
 deny:
     cargo deny check
 
+# Find unused Rust dependencies.
 machete:
     cargo machete
 
+# Run the Rust tests.
 test:
     cargo nextest run --workspace --locked --no-tests=pass
 
+# Lint, typecheck, and test the web UI.
 check-web:
     bun run lint
     bun run typecheck
@@ -76,12 +86,7 @@ gen-api-check: gen-api
 
 # Regenerate crates/triage/schema.sql from a freshly migrated database.
 db-schema:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    dir="$(mktemp -d)"
-    trap 'rm -rf "$dir"' EXIT
-    cargo run --quiet --locked -- --data-dir "$dir" db schema > crates/triage/schema.sql.tmp
-    mv crates/triage/schema.sql.tmp crates/triage/schema.sql
+    scripts/db-schema.sh
 
 # Fail when crates/triage/schema.sql no longer matches the migrations.
 db-schema-check:

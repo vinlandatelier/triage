@@ -16,9 +16,12 @@
     "verbatimModuleSyntax": true,
     "noFallthroughCasesInSwitch": true,
     "noImplicitOverride": true,
+    "noImplicitReturns": true,
+    "allowUnreachableCode": false,
+    "allowUnusedLabels": false,
     "paths": {
       "@/*": ["./src/*"]
     }
   },
-  "include": ["src", "e2e", "env.ts", "vite.config.ts", "playwright.config.ts"]
+  "include": ["src", "e2e", "env.ts", "vite.config.ts", "playwright.config.ts", "doctor.config.ts"]
 }

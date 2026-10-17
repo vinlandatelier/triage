@@ -5,7 +5,6 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "gen:api": "bun run --filter @triage/gen-api gen",
     "lint": "biome ci",
     "fix": "biome check --write",
     "typecheck": "tsc --noEmit",

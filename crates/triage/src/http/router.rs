@@ -31,7 +31,7 @@ fn scalar(routes: Router<AppState>, doc: &OpenApi) -> Router<AppState> {
     routes.merge(Scalar::with_url("/api/scalar", doc.clone()))
 }
 
-// Release builds leave `/api/scalar` to the `/api` fallback: the docs UI never ships.
+// The docs UI never ships; `/api/scalar` falls to the `/api` fallback.
 #[cfg(not(debug_assertions))]
 fn scalar(routes: Router<AppState>, _: &OpenApi) -> Router<AppState> {
     routes

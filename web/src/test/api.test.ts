@@ -1,6 +1,6 @@
 import { HttpResponse } from "msw";
 import { expect, test } from "vitest";
-import { type HealthGetResponse, healthGet } from "@/api";
+import { healthGet, helloGet } from "@/api";
 import { NetworkError, ProblemError } from "@/error";
 import { createQueryClient } from "@/query";
 import { mock } from "@/test/handlers";
@@ -8,7 +8,7 @@ import { server } from "@/test/setup";
 
 test("a problem response rejects with a ProblemError", async () => {
   server.use(
-    mock<HealthGetResponse>("get", "/health", () =>
+    mock(healthGet, () =>
       HttpResponse.json(
         {
           type: "https://triage.studio/problems/not-found",
@@ -28,12 +28,21 @@ test("a problem response rejects with a ProblemError", async () => {
 
 test("a body that is not a problem still rejects with the status", async () => {
   // A plain Response opts out of the body check, which is what a non-JSON body needs.
-  server.use(
-    mock<HealthGetResponse>("get", "/health", () => new Response("Bad Gateway", { status: 502 })),
-  );
+  server.use(mock(healthGet, () => new Response("Bad Gateway", { status: 502 })));
   const error = await healthGet().catch((e: unknown) => e);
   expect(error).toBeInstanceOf(ProblemError);
   expect(error).toMatchObject({ status: 502 });
+});
+
+test("a 2xx body that is not JSON keeps the parse error", async () => {
+  server.use(
+    mock(
+      healthGet,
+      () => new Response("{not json", { headers: { "content-type": "application/json" } }),
+    ),
+  );
+  const error = await healthGet().catch((e: unknown) => e);
+  expect(error).toBeInstanceOf(SyntaxError);
 });
 
 test("queries throw 5xx to the error boundary and keep 4xx local", () => {
@@ -48,23 +57,31 @@ test("queries throw 5xx to the error boundary and keep 4xx local", () => {
 
 test("a handler serves the generated response type", async () => {
   server.use(
-    mock<HealthGetResponse>("get", "/health", () =>
-      HttpResponse.json({ status: "ok", version: "0.0.0", uptime_s: 1 }),
-    ),
+    mock(healthGet, () => HttpResponse.json({ status: "ok", version: "0.0.0", uptime_s: 1 })),
   );
   const { data } = await healthGet();
   expect(data).toEqual({ status: "ok", version: "0.0.0", uptime_s: 1 });
 });
 
 test("a handler cannot return a body the generated type lacks", () => {
-  mock<HealthGetResponse>("get", "/health", () =>
+  mock(healthGet, () =>
     // @ts-expect-error `uptime` is not a field of `Health`.
     HttpResponse.json({ status: "ok", version: "0.0.0", uptime: 1 }),
   );
 });
 
+test("a handler matches a path parameter and types it", async () => {
+  server.use(
+    mock(helloGet, ({ params }) =>
+      HttpResponse.json({ id: params.id, name: "x", created_at: "2026-10-17T00:00:00.000Z" }),
+    ),
+  );
+  const { data } = await helloGet({ path: { id: "abc" } });
+  expect(data.id).toBe("abc");
+});
+
 test("a request with no response rejects with a NetworkError", async () => {
-  server.use(mock<HealthGetResponse>("get", "/health", () => HttpResponse.error()));
+  server.use(mock(healthGet, () => HttpResponse.error()));
   const error = await healthGet().catch((e: unknown) => e);
   expect(error).toBeInstanceOf(NetworkError);
 });

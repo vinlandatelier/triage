@@ -88,10 +88,15 @@ async fn render_problem(request: Request, next: Next) -> Response {
         .extensions()
         .get::<RequestId>()
         .and_then(|id| Uri::try_from(id.header_value().as_bytes()).ok());
+    let method = request.method().clone();
+    let path = request.uri().path().to_owned();
     let mut response = next.run(request).await;
     let problem = match response.extensions_mut().remove::<Problem>() {
         Some(problem) => problem,
         None if is_body_limit_rejection(&response) => AppError::PayloadTooLarge.problem(),
+        None if is_method_rejection(&response) => {
+            AppError::MethodNotAllowed(format!("{method} is not allowed on {path}")).problem()
+        }
         None => return response,
     };
     let problem = match instance {
@@ -114,6 +119,12 @@ fn is_body_limit_rejection(response: &Response) -> bool {
             .headers()
             .get(CONTENT_TYPE)
             .is_some_and(|value| value.as_bytes().starts_with(b"text/plain"))
+}
+
+/// axum's method router answers a wrong method with an empty 405 and an `allow` header.
+fn is_method_rejection(response: &Response) -> bool {
+    response.status() == StatusCode::METHOD_NOT_ALLOWED
+        && !response.headers().contains_key(CONTENT_TYPE)
 }
 
 /// Version 7 UUIDs, so ids sort by arrival.
@@ -473,6 +484,46 @@ mod tests {
                 .any(|line| line["error"] == "handler panicked: kaboom" && line["request_id"] == id),
             "{lines:?}"
         );
+        Ok(())
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn wrong_method_is_a_405_problem_with_allow() -> TestResult {
+        let router = Router::new().route("/api/thing", get(|| async { "ok" }));
+        let (response, _) = serve_one(problems(router), "DELETE /api/thing HTTP/1.1").await?;
+        assert!(response.starts_with("HTTP/1.1 405"), "{response}");
+        let allow = header(&response, "allow").ok_or("no allow")?;
+        assert!(allow.contains("GET"), "{allow}");
+        let body = problem_body(&response)?;
+        assert_eq!(
+            body["type"],
+            "https://triage.studio/problems/method-not-allowed"
+        );
+        assert_eq!(body["detail"], "DELETE is not allowed on /api/thing");
+        Ok(())
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn bad_json_is_a_422_problem() -> TestResult {
+        let router = Router::new().route(
+            "/api/thing",
+            axum::routing::post(
+                |crate::http::Json(v): crate::http::Json<Value>| async move { v.to_string() },
+            ),
+        );
+        for (head, body) in [
+            ("POST /api/thing HTTP/1.1\r\nContent-Length: 2", &b"{}"[..]),
+            (
+                "POST /api/thing HTTP/1.1\r\nContent-Type: application/json\r\nContent-Length: 1",
+                b"{",
+            ),
+        ] {
+            let (responses, _) = serve_all(problems(router.clone()), &[(head, body)]).await?;
+            let response = responses.first().ok_or("no response")?;
+            assert!(response.starts_with("HTTP/1.1 422"), "{response}");
+            let problem = problem_body(response)?;
+            assert_eq!(problem["errors"][0]["field"], "body", "{problem}");
+        }
         Ok(())
     }
 

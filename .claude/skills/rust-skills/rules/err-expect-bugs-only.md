@@ -1,6 +1,8 @@
 # err-expect-bugs-only
 
-> Use `expect()` only for invariants that indicate bugs, not user errors
+> No `expect()` outside tests; a broken invariant returns `AppError::Internal`
+
+Triage (docs/ARCHITECTURE.md rule 5): clippy denies `expect_used` outside tests. The examples below show general practice; here, return an error with `anyhow!` or `.context()` instead.
 
 ## Why It Matters
 

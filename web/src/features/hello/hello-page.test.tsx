@@ -4,7 +4,7 @@ import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { HttpResponse } from "msw";
 import { expect, test } from "vitest";
-import type { CreateHello, Hello, HelloCreateResponse, HelloListResponse } from "@/api";
+import { type Hello, helloCreate, helloList } from "@/api";
 import { ThemeProvider } from "@/components/theme-provider";
 import { createQueryClient } from "@/query";
 import { routeTree } from "@/routeTree.gen";
@@ -46,11 +46,7 @@ function names() {
 }
 
 test("renders the recent list", async () => {
-  server.use(
-    mock<HelloListResponse>("get", "/api/hello", () =>
-      HttpResponse.json([hello("mars"), hello("venus")]),
-    ),
-  );
+  server.use(mock(helloList, () => HttpResponse.json([hello("mars"), hello("venus")])));
   renderAt("/");
   await screen.findByRole("list", { name: "Recent hellos" });
   expect(names()).toEqual(["mars", "venus"]);
@@ -59,8 +55,8 @@ test("renders the recent list", async () => {
 test("submitting a name adds it at the top of the list", async () => {
   const stored = [hello("mars")];
   server.use(
-    mock<HelloListResponse>("get", "/api/hello", () => HttpResponse.json(stored)),
-    mock<HelloCreateResponse, never, CreateHello>("post", "/api/hello", async ({ request }) => {
+    mock(helloList, () => HttpResponse.json(stored)),
+    mock(helloCreate, async ({ request }) => {
       const created = hello((await request.json()).name);
       stored.unshift(created);
       return HttpResponse.json(created, { status: 201 });
@@ -78,8 +74,8 @@ test("submitting a name adds it at the top of the list", async () => {
 test("an empty name shows the error without a request", async () => {
   let posts = 0;
   server.use(
-    mock<HelloListResponse>("get", "/api/hello", () => HttpResponse.json([])),
-    mock<HelloCreateResponse>("post", "/api/hello", () => {
+    mock(helloList, () => HttpResponse.json([])),
+    mock(helloCreate, () => {
       posts += 1;
       return HttpResponse.json(hello("x"), { status: 201 });
     }),
@@ -95,8 +91,8 @@ test("an empty name shows the error without a request", async () => {
 
 test("a 422 from the server shows its field error inline", async () => {
   server.use(
-    mock<HelloListResponse>("get", "/api/hello", () => HttpResponse.json([])),
-    mock<HelloCreateResponse>("post", "/api/hello", () =>
+    mock(helloList, () => HttpResponse.json([])),
+    mock(helloCreate, () =>
       HttpResponse.json(
         {
           type: "https://triage.studio/problems/validation",
@@ -117,7 +113,7 @@ test("a 422 from the server shows its field error inline", async () => {
 });
 
 test("an unreachable API shows the route error component", async () => {
-  server.use(mock<HelloListResponse>("get", "/api/hello", () => HttpResponse.error()));
+  server.use(mock(helloList, () => HttpResponse.error()));
   renderAt("/");
   expect(await screen.findByRole("heading", { name: "Something went wrong" })).toBeDefined();
   expect(screen.getByRole("alert").textContent).toContain("Cannot reach the triage daemon");

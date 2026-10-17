@@ -56,7 +56,7 @@ impl<'r> Decode<'r, Sqlite> for HelloId {
     }
 }
 
-/// A trimmed name of 1 to [`NAME_MAX`] characters.
+/// A trimmed name of 1 to [`NAME_MAX`] characters, with no control characters.
 // Decoding skips `parse`: the table's CHECK already holds the same bounds.
 #[derive(Debug, Clone, PartialEq, Eq, sqlx::Type)]
 #[sqlx(transparent)]
@@ -66,11 +66,15 @@ impl HelloName {
     pub fn parse(raw: &str) -> Result<Self> {
         let name = raw.trim();
         let len = name.chars().count();
-        if (1..=NAME_MAX).contains(&len) {
+        // SQLite's `length()` stops at NUL, so the table CHECK would see a different name.
+        let control = name.chars().any(char::is_control);
+        if (1..=NAME_MAX).contains(&len) && !control {
             return Ok(Self(name.to_owned()));
         }
         let message = if len == 0 {
             "must not be empty".to_owned()
+        } else if control {
+            "must not contain control characters".to_owned()
         } else {
             format!("must be at most {NAME_MAX} characters")
         };
@@ -114,6 +118,20 @@ mod tests {
         for bad in ["", "   ", &"a".repeat(NAME_MAX + 1)] {
             assert!(
                 matches!(HelloName::parse(bad), Err(AppError::Validation(_))),
+                "{bad:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn name_rejects_control_characters() {
+        for bad in ["a\0b", "a\nb", "a\u{7f}b", "a\u{85}b"] {
+            assert!(
+                matches!(
+                    HelloName::parse(bad),
+                    Err(AppError::Validation(errors))
+                        if errors.first().is_some_and(|e| e.message == "must not contain control characters")
+                ),
                 "{bad:?}"
             );
         }

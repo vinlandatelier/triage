@@ -2,7 +2,7 @@
 # Enforces the layout rules in docs/ARCHITECTURE.md. Prints `file: rule` per violation.
 set -uo pipefail
 
-cd "$(dirname "$0")/.."
+cd "$(dirname "$0")/.." || exit
 src=crates/triage/src
 features="$src/features"
 expected="http.rs mod.rs model.rs repo.rs service.rs"
@@ -14,8 +14,9 @@ violation() {
 }
 
 # Prints matching lines, ignoring `//` comments so docs can name the forbidden items.
+# A `//` right after `:` is kept, so a URL in a string does not hide the code before it.
 code_grep() {
-    sed 's://.*$::' "$2" | grep -nE "$1"
+    sed -E 's:(^|[^:])//.*$:\1:' "$2" | grep -nE "$1"
 }
 
 for dir in "$features"/*/; do
@@ -40,7 +41,7 @@ for dir in "$features"/*/; do
 done
 
 while IFS= read -r file; do
-    if [ "$file" != "$src/config.rs" ] && code_grep '(^|[^[:alnum:]_])env::var' "$file" >/dev/null; then
+    if [ "$file" != "$src/config.rs" ] && code_grep '(^|[^[:alnum:]_])env::(var|\{([^}]*[^[:alnum:]_])?var)' "$file" >/dev/null; then
         violation "$file" "std::env::var only in config.rs"
     fi
     if [ "$file" != "$src/cli.rs" ] && code_grep '(^|[^[:alnum:]_])println!' "$file" >/dev/null; then

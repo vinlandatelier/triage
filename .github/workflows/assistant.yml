@@ -66,6 +66,8 @@ jobs:
 
       - if: steps.trigger.outputs.phrase
         uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: .bun-version
 
       - if: steps.trigger.outputs.phrase
         run: gh extension install github/gh-stack --pin v0.2.1
@@ -139,6 +141,8 @@ jobs:
 
       - if: steps.root.outputs.ours == 'true'
         uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: .bun-version
 
       - if: steps.root.outputs.ours == 'true'
         run: gh extension install github/gh-stack --pin v0.2.1

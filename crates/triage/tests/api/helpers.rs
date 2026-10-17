@@ -34,7 +34,8 @@ pub fn triage(dir: &Path) -> Command {
         // Keeps a developer's `.env` out of the run.
         .current_dir(dir)
         .env_remove("TRIAGE_OTEL_ENDPOINT")
-        .env_remove("OTEL_EXPORTER_OTLP_ENDPOINT");
+        .env_remove("OTEL_EXPORTER_OTLP_ENDPOINT")
+        .env_remove("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT");
     command
 }
 
@@ -93,7 +94,7 @@ pub fn wait_for_line(
 pub struct TestApp {
     pub server: TestServer,
     pub store: Store,
-    #[allow(dead_code, reason = "held so the database outlives the store")]
+    /// Held so the database outlives the store.
     pub dir: TempDir,
 }
 

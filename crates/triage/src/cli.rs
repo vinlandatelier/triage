@@ -2,7 +2,7 @@
 
 use std::fmt::Write as _;
 use std::io;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use clap::{CommandFactory, Parser, Subcommand};
@@ -22,6 +22,8 @@ pub enum Error {
     Store(#[from] store::Error),
     #[error("cannot start the async runtime: {0}")]
     Runtime(io::Error),
+    #[error("cannot write to stdout: {0}")]
+    Stdout(io::Error),
 }
 
 impl Error {
@@ -30,7 +32,7 @@ impl Error {
             Self::Config(err) => err.exit_code(),
             Self::Http(err) => err.exit_code(),
             Self::Store(err) => err.exit_code(),
-            Self::Runtime(_) => 1,
+            Self::Runtime(_) | Self::Stdout(_) => 1,
         }
     }
 }
@@ -60,7 +62,7 @@ pub struct Cli {
 enum Command {
     /// Run the daemon in the foreground on `127.0.0.1:$TRIAGE_PORT`
     Serve,
-    /// Report whether the daemon is running; exits 1 when it is not
+    /// Report whether the daemon is running; exits 3 when it is not
     Status,
     /// Inspect the resolved configuration
     #[command(subcommand)]
@@ -77,7 +79,7 @@ enum Command {
 
 #[derive(Debug, Subcommand)]
 enum LogsCommand {
-    /// Print the absolute path of today's JSONL log file, which may not exist yet
+    /// Print the absolute path of today's JSONL log file
     Path,
 }
 
@@ -126,27 +128,38 @@ pub fn run(cli: Cli) -> Result<ExitCode, Error> {
     // Completions must work before config exists, e.g. during install.
     let Cli { data_dir, command } = cli;
     if let Some(Command::Completions { shell }) = command {
-        completions(shell, &mut io::stdout());
+        let mut script = Vec::new();
+        completions(shell, &mut script);
+        emit(&String::from_utf8_lossy(&script))?;
         return Ok(ExitCode::SUCCESS);
     }
     let config = Config::load()?;
     let paths = Paths::resolve(data_dir.clone())?;
+    // Read-only, so it never creates a dir or today's log file.
+    if let Some(Command::Config(ConfigCommand::Show)) = command {
+        emit(&config_table(&config, &paths))?;
+        return Ok(ExitCode::SUCCESS);
+    }
+    paths.create()?;
+    if let Some(Command::Serve) = command {
+        // Before telemetry, so a second instance never writes into the running one's log file.
+        let lock = http::lock_data_dir(&paths)?;
+        let _guard = start_telemetry(&config, &paths, data_dir.as_deref());
+        return Ok(match http::serve(config, paths, lock) {
+            Ok(()) => ExitCode::SUCCESS,
+            // Logged rather than returned, so it reaches the JSONL file and stderr shows it once.
+            Err(err) => {
+                tracing::error!(error = &err as &dyn std::error::Error, "serve failed");
+                ExitCode::from(err.exit_code())
+            }
+        });
+    }
     // Lives until `run` returns, which is when `main` exits.
-    let _guard = telemetry::init(&config, &paths);
-    config::log_data_dir_override(data_dir.as_deref());
-    tracing::debug!(?config, ?paths, "startup");
+    let _guard = start_telemetry(&config, &paths, data_dir.as_deref());
     Ok(match command {
         Some(Command::Status) => status(config.port)?,
-        Some(Command::Serve) => {
-            http::serve(config, paths)?;
-            ExitCode::SUCCESS
-        }
-        Some(Command::Config(ConfigCommand::Show)) => {
-            show(&config, &paths);
-            ExitCode::SUCCESS
-        }
         Some(Command::Logs(LogsCommand::Path)) => {
-            logs_path(&paths);
+            logs_path(&paths)?;
             ExitCode::SUCCESS
         }
         Some(Command::Db(DbCommand::Schema)) => {
@@ -162,21 +175,42 @@ pub fn run(cli: Cli) -> Result<ExitCode, Error> {
             db_sql(&paths, &query, json)?;
             ExitCode::SUCCESS
         }
-        Some(Command::Completions { .. }) | None => ExitCode::SUCCESS,
+        Some(Command::Completions { .. } | Command::Config(_) | Command::Serve) | None => {
+            ExitCode::SUCCESS
+        }
     })
 }
 
-#[expect(clippy::print_stdout, reason = "CLI output")]
-fn status(port: u16) -> http::Result<ExitCode> {
+fn start_telemetry(config: &Config, paths: &Paths, data_dir: Option<&Path>) -> telemetry::Guard {
+    let guard = telemetry::init(config, paths);
+    config::log_data_dir_override(data_dir);
+    tracing::debug!(?config, ?paths, "startup");
+    guard
+}
+
+/// Writes command output. A reader that closed the pipe early, as `head` does, is not an error.
+fn emit(text: &str) -> Result<(), Error> {
+    write_out(&mut io::stdout().lock(), text)
+}
+
+fn write_out(out: &mut impl io::Write, text: &str) -> Result<(), Error> {
+    match out.write_all(text.as_bytes()).and_then(|()| out.flush()) {
+        Err(err) if err.kind() != io::ErrorKind::BrokenPipe => Err(Error::Stdout(err)),
+        _ => Ok(()),
+    }
+}
+
+fn status(port: u16) -> Result<ExitCode, Error> {
     let Some(health) = http::probe(port)? else {
-        println!("not running");
-        return Ok(ExitCode::FAILURE);
+        emit("not running\n")?;
+        // LSB `status` code for "not running", so scripts can tell it from a failed check.
+        return Ok(ExitCode::from(3));
     };
-    println!(
-        "running v{} on 127.0.0.1:{port}, up {}",
+    emit(&format!(
+        "running v{} on 127.0.0.1:{port}, up {}\n",
         health.version,
         uptime(health.uptime_s)
-    );
+    ))?;
     Ok(ExitCode::SUCCESS)
 }
 
@@ -190,12 +224,11 @@ fn uptime(secs: u64) -> String {
     }
 }
 
-#[expect(clippy::print_stdout, reason = "CLI output")]
-fn logs_path(paths: &Paths) {
-    println!(
-        "{}",
+fn logs_path(paths: &Paths) -> Result<(), Error> {
+    emit(&format!(
+        "{}\n",
         telemetry::log_file(&paths.logs, OffsetDateTime::now_utc().date()).display()
-    );
+    ))
 }
 
 fn block_on<T>(future: impl Future<Output = store::Result<T>>) -> Result<T, Error> {
@@ -206,34 +239,29 @@ fn block_on<T>(future: impl Future<Output = store::Result<T>>) -> Result<T, Erro
     Ok(runtime.block_on(future)?)
 }
 
-#[expect(clippy::print_stdout, reason = "CLI output")]
 fn db_schema(paths: &Paths) -> Result<(), Error> {
     let schema = block_on(async {
         let store = store::open(paths).await?;
         store::dump_schema(&store.read).await
     })?;
-    print!("{schema}");
-    Ok(())
+    emit(&schema)
 }
 
-#[expect(clippy::print_stdout, reason = "CLI output")]
 fn db_migrate(paths: &Paths) -> Result<(), Error> {
     let count = block_on(store::migrate(paths))?;
     let plural = if count == 1 { "" } else { "s" };
-    println!("applied {count} migration{plural}");
-    Ok(())
+    emit(&format!("applied {count} migration{plural}\n"))
 }
 
-#[expect(clippy::print_stdout, reason = "CLI output")]
 fn db_check(paths: &Paths) -> Result<ExitCode, Error> {
     let live = block_on(async { store::dump_schema(&store::open_read_only(paths).await?).await })?;
     match schema_drift(store::SCHEMA, &live) {
         None => {
-            println!("schema matches schema.sql");
+            emit("schema matches schema.sql\n")?;
             Ok(ExitCode::SUCCESS)
         }
         Some(drift) => {
-            print!("{drift}");
+            emit(&drift)?;
             Ok(ExitCode::FAILURE)
         }
     }
@@ -265,15 +293,13 @@ fn shown(line: Option<&str>) -> &str {
     }
 }
 
-#[expect(clippy::print_stdout, reason = "CLI output")]
 fn db_sql(paths: &Paths, query: &str, json: bool) -> Result<(), Error> {
     let rows = block_on(async { store::query(&store::open_read_only(paths).await?, query).await })?;
     if json {
-        println!("{:#}", rows.to_json()?);
+        emit(&format!("{:#}\n", rows.to_json()?))
     } else {
-        print!("{}", rows_table(&rows));
+        emit(&rows_table(&rows))
     }
-    Ok(())
 }
 
 fn rows_table(rows: &store::Rows) -> String {
@@ -313,11 +339,6 @@ fn rows_table(rows: &store::Rows) -> String {
             let _ = writeln!(table, "{}", padded.join("  ").trim_end());
             table
         })
-}
-
-#[expect(clippy::print_stdout, reason = "CLI output")]
-fn show(config: &Config, paths: &Paths) {
-    print!("{}", config_table(config, paths));
 }
 
 fn config_table(config: &Config, paths: &Paths) -> String {
@@ -366,10 +387,10 @@ mod tests {
             config_table(&Config::default(), &paths()),
             "\
 TRIAGE_PORT            7311
-TRIAGE_LOG_LEVEL       \"info\"
-TRIAGE_LOG_FILE_LEVEL  \"info,triage=debug\"
-TRIAGE_LOG_FORMAT      Columns
-TRIAGE_OTEL_ENDPOINT   None
+TRIAGE_LOG_LEVEL       info
+TRIAGE_LOG_FILE_LEVEL  info,triage=debug
+TRIAGE_LOG_FORMAT      columns
+TRIAGE_OTEL_ENDPOINT   -
 data_dir               /d
 logs_dir               /d/logs
 config_dir             /d/config
@@ -414,6 +435,25 @@ id   no⏎te
             schema_drift("a\n", "a\n\nb\n").as_deref(),
             Some("schema drift at line 2\n  schema.sql  (end)\n  database    (blank line)\n")
         );
+    }
+
+    struct Failing(io::ErrorKind);
+
+    impl io::Write for Failing {
+        fn write(&mut self, _: &[u8]) -> io::Result<usize> {
+            Err(self.0.into())
+        }
+
+        fn flush(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn closed_stdout_is_success_and_other_errors_exit_1() {
+        assert!(write_out(&mut Failing(io::ErrorKind::BrokenPipe), "x").is_ok());
+        let err = write_out(&mut Failing(io::ErrorKind::StorageFull), "x").err();
+        assert_eq!(err.map(|e| e.exit_code()), Some(1));
     }
 
     #[test]

@@ -1,8 +1,11 @@
 import { defineConfig } from "@julr/vite-plugin-validate-env";
 import { z } from "zod";
 
-// Browsers read `\` as `/` in URLs, so `/\host` is protocol-relative too.
-const isPath = (v: string) => v.startsWith("/") && !/^\/[/\\]/.test(v);
+// Resolve against a sentinel origin instead of pattern-matching: the URL parser strips tabs and
+// newlines and reads `\` as `/`, so `/\t/host` and `/\host` are protocol-relative too.
+const SENTINEL = "http://sentinel.invalid";
+export const isPath = (v: string) =>
+  v.startsWith("/") && URL.canParse(v, SENTINEL) && new URL(v, SENTINEL).origin === SENTINEL;
 const isHttpUrl = (v: string) => URL.canParse(v) && /^https?:$/.test(new URL(v).protocol);
 
 export default defineConfig({

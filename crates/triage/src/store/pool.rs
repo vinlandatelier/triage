@@ -29,6 +29,13 @@ impl Store {
     pub async fn begin(&self) -> sqlx::Result<Transaction<'static, Sqlite>> {
         self.write.begin_with("BEGIN IMMEDIATE").await
     }
+
+    /// Waits for checked-out connections, then closes both pools. The last connection to
+    /// close checkpoints the WAL and removes the `-wal` and `-shm` files.
+    pub async fn close(&self) {
+        self.read.close().await;
+        self.write.close().await;
+    }
 }
 
 /// Opens `<data>/triage.db`, creating it if missing, and applies pending migrations.
@@ -126,8 +133,8 @@ fn migrate_error(migrator: &Migrator, err: MigrateError) -> Error {
         MigrateError::VersionMismatch(version) => Error::Edited {
             name: name(version),
         },
+        MigrateError::VersionMissing(version) => Error::Newer { version },
         MigrateError::ExecuteMigration(_, version)
-        | MigrateError::VersionMissing(version)
         | MigrateError::VersionTooOld(version, _)
         | MigrateError::VersionTooNew(version, _) => Error::Migrate {
             name: name(version),
@@ -227,6 +234,55 @@ mod tests {
             return Err("a read-only write must fail".into());
         };
         assert!(err.to_string().contains("readonly database"), "{err}");
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn close_removes_the_wal_files() -> TestResult {
+        let tmp = tempfile::tempdir()?;
+        let db = tmp.path().join("t.db");
+        let migrations = migrator(
+            &tmp.path().join("m"),
+            &[("1_t.sql", "CREATE TABLE t (x INTEGER) STRICT;")],
+        )
+        .await?;
+        let store = open_with(&db, &migrations).await?;
+        sqlx::query("INSERT INTO t VALUES (1)")
+            .execute(&store.write)
+            .await?;
+        assert!(tmp.path().join("t.db-wal").exists());
+        store.close().await;
+        for suffix in ["-wal", "-shm"] {
+            assert!(
+                !tmp.path().join(format!("t.db{suffix}")).exists(),
+                "{suffix}"
+            );
+        }
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn newer_database_names_the_unknown_version() -> TestResult {
+        let tmp = tempfile::tempdir()?;
+        let db = tmp.path().join("t.db");
+        let newer = migrator(
+            &tmp.path().join("new"),
+            &[
+                ("1_first.sql", "CREATE TABLE first (x INTEGER) STRICT;"),
+                ("2_second.sql", "CREATE TABLE second (x INTEGER) STRICT;"),
+            ],
+        )
+        .await?;
+        drop(open_with(&db, &newer).await?);
+        let older = migrator(
+            &tmp.path().join("old"),
+            &[("1_first.sql", "CREATE TABLE first (x INTEGER) STRICT;")],
+        )
+        .await?;
+        let Err(err) = open_with(&db, &older).await else {
+            return Err("an older binary must not open a newer database".into());
+        };
+        assert!(matches!(err, Error::Newer { version: 2 }), "{err:?}");
         Ok(())
     }
 

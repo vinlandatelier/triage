@@ -75,9 +75,13 @@ pub fn serve(config: Config, paths: Paths) -> Result<()> {
             log = %telemetry::log_file(&paths.logs, OffsetDateTime::now_utc().date()).display(),
             "listening"
         );
-        let state = AppState::new(config, paths, store);
+        let state = AppState::new(config, paths, store.clone());
         let started = state.started;
         let result = serve_until(listener, router(state), signals, DRAIN).await;
+        // A cut drain leaves requests holding connections, and `close` would wait for them.
+        if matches!(result, Ok(Stopped::Drained)) {
+            store.close().await;
+        }
         tracing::info!(uptime_s = started.elapsed().as_secs(), "stopped");
         result.map(drop)
     });

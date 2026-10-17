@@ -20,6 +20,10 @@ pub enum Error {
     Edited { name: String },
     #[error("migration {name} failed: {source}")]
     Migrate { name: String, source: MigrateError },
+    #[error(
+        "the database has migration {version}, which this triage does not know; upgrade triage"
+    )]
+    Newer { version: i64 },
     #[error("cannot apply migrations: {0}")]
     Migrations(MigrateError),
     #[error("cannot read the schema: {0}")]

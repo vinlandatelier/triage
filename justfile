@@ -8,6 +8,8 @@ export PATH := env("HOME") + "/.cargo/bin:" + env("HOME") + "/.bun/bin:" + env("
 # just has no min-version setting. shell() rather than a backtick so --dry-run still evaluates it.
 _min_just := if semver_matches(shell(quote(just_executable()) + ' --version | cut -d" " -f2'), ">=1.42.0") == "true" { "" } else { error("just >= 1.42.0 is required") }
 
+dev_port := env("TRIAGE_DEV_PORT", "7311")
+
 [private]
 default:
     @{{ quote(just_executable()) }} --list
@@ -281,6 +283,29 @@ fix:
     cargo fmt --all
     bun run fix
 
-# Run the server and restart it on change.
-dev:
-    bacon run-server
+# Serve the app at localhost:$TRIAGE_DEV_PORT (default 7311): Vite for the UI, proxying /api to the daemon on 7312.
+dev: _dev-port-free _dev-run
+
+# Vite binds localhost, which may resolve to ::1, so strictPort alone misses a daemon on 127.0.0.1.
+[private]
+_dev-port-free:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    port="{{dev_port}}"
+    if (exec 3<>"/dev/tcp/127.0.0.1/$port") 2>/dev/null; then
+        echo "installed triage is running on $port, stop it or set TRIAGE_DEV_PORT" >&2
+        exit 1
+    fi
+    echo "triage dev: http://localhost:$port"
+
+[parallel]
+[private]
+_dev-run: _dev-server _dev-web
+
+[private]
+_dev-server:
+    TRIAGE_PORT=7312 bacon --headless run-server
+
+[private]
+_dev-web:
+    cd web && bun run dev --port {{dev_port}}

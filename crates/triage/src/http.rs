@@ -50,26 +50,29 @@ pub type Result<T, E = Error> = std::result::Result<T, E>;
 pub fn serve(config: Config, paths: Paths) -> Result<()> {
     // The OS drops the lock when the process dies, so a crash never leaves it stale.
     let _lock = lock(&paths.lock_file(), &paths.data)?;
-    // Built here, not in `main`: `telemetry::init` must read the local offset while single-threaded.
     let runtime = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()
         .map_err(Error::Runtime)?;
-    runtime.block_on(async {
-        let listener = bind(config.port).await?;
+    let result = runtime.block_on(async {
+        let shutdown = shutdown_signal();
+        let (listener, addr) = bind(config.port).await?;
         tracing::info!(
             version = env!("CARGO_PKG_VERSION"),
-            addr = %listener.local_addr().map_err(Error::Serve)?,
+            %addr,
             data = %paths.data.display(),
             log = %telemetry::log_file(&paths.logs, OffsetDateTime::now_utc().date()).display(),
             "listening"
         );
         let state = AppState::new(config, paths);
         let started = state.started;
-        serve_until(listener, router(state), shutdown_signal(), DRAIN).await?;
+        let result = serve_until(listener, router(state), shutdown, DRAIN).await;
         tracing::info!(uptime_s = started.elapsed().as_secs(), "stopped");
-        Ok(())
-    })
+        result
+    });
+    // A plain drop waits forever on blocking tasks, which would break the drain cap.
+    runtime.shutdown_timeout(Duration::from_secs(1));
+    result
 }
 
 fn lock(path: &Path, data: &Path) -> Result<File> {
@@ -92,15 +95,20 @@ fn lock(path: &Path, data: &Path) -> Result<File> {
     }
 }
 
-async fn bind(port: u16) -> Result<TcpListener> {
+async fn bind(port: u16) -> Result<(TcpListener, SocketAddr)> {
     let addr = SocketAddr::from((Ipv4Addr::LOCALHOST, port));
-    TcpListener::bind(addr).await.map_err(|source| {
+    let listener = TcpListener::bind(addr).await.map_err(|source| {
         if source.kind() == io::ErrorKind::AddrInUse {
             Error::PortInUse(port)
         } else {
             Error::Bind { addr, source }
         }
-    })
+    })?;
+    // Differs from `addr` when the port is 0.
+    let bound = listener
+        .local_addr()
+        .map_err(|source| Error::Bind { addr, source })?;
+    Ok((listener, bound))
 }
 
 /// Stops accepting once `shutdown` resolves, then waits up to `drain` for open requests.
@@ -133,30 +141,53 @@ async fn serve_until(
     }
 }
 
-async fn shutdown_signal() {
-    let ctrl_c = async {
-        if let Err(err) = tokio::signal::ctrl_c().await {
-            tracing::warn!(error = %err, "cannot listen for ctrl-c");
-            std::future::pending::<()>().await;
-        }
-    };
-    #[cfg(unix)]
-    let terminate = async {
-        match tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()) {
-            Ok(mut signal) => {
+/// Registers the handlers before the future is polled: axum only polls it after it starts
+/// accepting, and a SIGTERM in that gap would kill the process without a drain.
+#[cfg(unix)]
+fn shutdown_signal() -> impl Future<Output = ()> + Send + 'static {
+    use tokio::signal::unix::{Signal, SignalKind, signal};
+
+    fn listen(kind: SignalKind, name: &'static str) -> Option<Signal> {
+        signal(kind)
+            .inspect_err(|err| {
+                tracing::warn!(
+                    error = err as &dyn std::error::Error,
+                    signal = name,
+                    "cannot listen for signal"
+                );
+            })
+            .ok()
+    }
+
+    async fn recv(signal: Option<Signal>) {
+        match signal {
+            Some(mut signal) => {
                 signal.recv().await;
             }
-            Err(err) => {
-                tracing::warn!(error = %err, "cannot listen for SIGTERM");
-                std::future::pending::<()>().await;
-            }
+            None => std::future::pending().await,
         }
-    };
-    #[cfg(not(unix))]
-    let terminate = std::future::pending::<()>();
-    tokio::select! {
-        () = ctrl_c => {}
-        () = terminate => {}
+    }
+
+    let interrupt = listen(SignalKind::interrupt(), "SIGINT");
+    let terminate = listen(SignalKind::terminate(), "SIGTERM");
+    async move {
+        tokio::select! {
+            () = recv(interrupt) => {}
+            () = recv(terminate) => {}
+        }
+    }
+}
+
+#[cfg(not(unix))]
+fn shutdown_signal() -> impl Future<Output = ()> + Send + 'static {
+    async {
+        if let Err(err) = tokio::signal::ctrl_c().await {
+            tracing::warn!(
+                error = &err as &dyn std::error::Error,
+                "cannot listen for ctrl-c"
+            );
+            std::future::pending::<()>().await;
+        }
     }
 }
 
@@ -267,7 +298,16 @@ mod tests {
     #[tokio::test]
     async fn drain_window_caps_shutdown() -> TestResult {
         let (listener, addr) = local_listener().await?;
-        let hang = Router::new().route("/hang", get(std::future::pending::<&str>));
+        let entered = Arc::new(Notify::new());
+        let notify = Arc::clone(&entered);
+        let hang = Router::new().route(
+            "/hang",
+            get(move || {
+                notify.notify_one();
+                std::future::pending::<&str>()
+            }),
+        );
+        let drain = Duration::from_millis(50);
         let (stop, stopped) = oneshot::channel::<()>();
         let server = tokio::spawn(serve_until(
             listener,
@@ -275,12 +315,14 @@ mod tests {
             async {
                 let _ = stopped.await;
             },
-            Duration::from_millis(50),
+            drain,
         ));
         let _request = tokio::spawn(get_path(addr, "/hang"));
-        tokio::time::sleep(Duration::from_millis(50)).await;
+        entered.notified().await;
+        let stopping = std::time::Instant::now();
         let _ = stop.send(());
         tokio::time::timeout(Duration::from_secs(5), server).await???;
+        assert!(stopping.elapsed() >= drain, "{:?}", stopping.elapsed());
         Ok(())
     }
 
@@ -308,7 +350,7 @@ mod tests {
     #[tokio::test]
     async fn port_in_use_names_the_port_and_var() -> TestResult {
         let (_held, addr) = local_listener().await?;
-        let Err(err) = bind(addr.port()).await else {
+        let Err(err) = bind(addr.port()).await.map(|_| ()) else {
             return Err("second bind must fail".into());
         };
         assert_eq!(err.exit_code(), 1);

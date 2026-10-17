@@ -1,7 +1,7 @@
 use sqlx::SqlitePool;
 use triage::store;
 
-use crate::helpers::{TestResult, spawn_app};
+use crate::helpers::{TestResult, spawn_app, triage};
 
 /// Every table is `STRICT`, keyed by `id TEXT PRIMARY KEY`, carries `created_at` and
 /// `updated_at`, and uses `snake_case` names.
@@ -106,6 +106,20 @@ async fn schema_dump_is_current() -> TestResult {
         committed,
         fresh,
         "{path} is stale: run `just db-schema` (left: committed, right: migrations)"
+    );
+    Ok(())
+}
+
+/// `just db-schema` writes this command's stdout, so it must match the dump the test above checks.
+#[test]
+fn db_schema_prints_schema_sql() -> TestResult {
+    let tmp = tempfile::tempdir()?;
+    let out = triage(tmp.path()).args(["db", "schema"]).output()?;
+    assert!(out.status.success(), "{out:?}");
+    let path = concat!(env!("CARGO_MANIFEST_DIR"), "/schema.sql");
+    pretty_assertions::assert_eq!(
+        std::fs::read_to_string(path)?,
+        String::from_utf8(out.stdout)?
     );
     Ok(())
 }

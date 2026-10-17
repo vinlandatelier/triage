@@ -86,12 +86,7 @@ gen-api-check: gen-api
 
 # Regenerate crates/triage/schema.sql from a freshly migrated database.
 db-schema:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    dir="$(mktemp -d)"
-    trap 'rm -rf "$dir"' EXIT
-    cargo run --quiet --locked -- --data-dir "$dir" db schema > crates/triage/schema.sql.tmp
-    mv crates/triage/schema.sql.tmp crates/triage/schema.sql
+    scripts/db-schema.sh
 
 # Fail when crates/triage/schema.sql no longer matches the migrations.
 db-schema-check:

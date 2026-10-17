@@ -1,72 +1,18 @@
-use std::io::{BufRead as _, BufReader, Read as _, Write as _};
-use std::net::{SocketAddr, TcpStream};
-use std::process::{Child, Command, Stdio};
-use std::sync::mpsc;
+use std::io::{Read as _, Write as _};
+use std::net::TcpStream;
 use std::time::{Duration, Instant};
 use std::{fs, thread};
 
 use serde_json::Value;
 
-type TestResult = Result<(), Box<dyn std::error::Error>>;
-
-const WAIT: Duration = Duration::from_secs(10);
-
-struct Daemon(Child);
-
-impl Drop for Daemon {
-    fn drop(&mut self) {
-        let _ = self.0.kill();
-        let _ = self.0.wait();
-    }
-}
-
-fn wait_for_line(lines: &mpsc::Receiver<String>, found: impl Fn(&str) -> bool) -> Option<String> {
-    let deadline = Instant::now() + WAIT;
-    while let Some(left) = deadline.checked_duration_since(Instant::now()) {
-        match lines.recv_timeout(left) {
-            Ok(line) if found(&line) => return Some(line),
-            Ok(_) => {}
-            Err(_) => return None,
-        }
-    }
-    None
-}
+use crate::helpers::{TestResult, WAIT, serve, triage, wait_for_line};
 
 #[test]
 fn one_request_id_links_response_stderr_and_jsonl() -> TestResult {
     let tmp = tempfile::tempdir()?;
-    let child = Command::new(env!("CARGO_BIN_EXE_triage"))
-        .arg("--data-dir")
-        .arg(tmp.path())
-        .arg("serve")
-        // Keeps a developer's `.env` out of the run.
-        .current_dir(tmp.path())
-        // Port 0 avoids racing parallel tests for a free port; the `listening` line names it.
-        .env("TRIAGE_PORT", "0")
-        .env("TRIAGE_LOG_FORMAT", "columns")
-        .env("TRIAGE_LOG_LEVEL", "info")
-        .env("TRIAGE_LOG_FILE_LEVEL", "info,triage=debug")
-        .env_remove("TRIAGE_OTEL_ENDPOINT")
-        .env_remove("OTEL_EXPORTER_OTLP_ENDPOINT")
-        .stderr(Stdio::piped())
-        .spawn()?;
-    let mut daemon = Daemon(child);
-    let stderr = daemon.0.stderr.take().ok_or("no stderr")?;
-    let (send, lines) = mpsc::channel();
-    thread::spawn(move || {
-        for line in BufReader::new(stderr).lines().map_while(Result::ok) {
-            if send.send(line).is_err() {
-                break;
-            }
-        }
-    });
-    let listening =
-        wait_for_line(&lines, |line| line.contains("listening")).ok_or("daemon never listened")?;
-    let addr: SocketAddr = listening
-        .split_whitespace()
-        .find_map(|part| part.strip_prefix("addr="))
-        .ok_or_else(|| format!("no addr in {listening}"))?
-        .parse()?;
+    let mut command = triage(tmp.path());
+    command.env("TRIAGE_LOG_FILE_LEVEL", "info,triage=debug");
+    let (_daemon, addr, lines) = serve(command)?;
 
     let mut stream = TcpStream::connect(addr)?;
     stream.set_read_timeout(Some(WAIT))?;

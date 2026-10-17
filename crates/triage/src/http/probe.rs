@@ -11,9 +11,12 @@ use tokio::net::TcpStream;
 use super::{Error, Result};
 
 const TIMEOUT: Duration = Duration::from_secs(2);
+// A real health body is under 100 bytes; the cap stops a foreign listener from filling memory.
+const MAX_RESPONSE: u64 = 16 * 1024;
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 pub struct Health {
+    status: String,
     pub version: String,
     pub uptime_s: u64,
 }
@@ -33,7 +36,13 @@ async fn probe_addr(addr: SocketAddr, timeout: Duration) -> Option<Health> {
         .await
         .unwrap_or_else(|_| Err(io::Error::from(io::ErrorKind::TimedOut)));
     result
-        .inspect_err(|err| tracing::debug!(%addr, error = %err, "health probe failed"))
+        .inspect_err(|err| {
+            tracing::debug!(
+                %addr,
+                error = err as &dyn std::error::Error,
+                "health probe failed"
+            );
+        })
         .ok()
 }
 
@@ -47,7 +56,16 @@ async fn get_health(addr: SocketAddr) -> io::Result<Health> {
         )
         .await?;
     let mut response = Vec::new();
-    stream.read_to_end(&mut response).await?;
+    (&mut stream)
+        .take(MAX_RESPONSE + 1)
+        .read_to_end(&mut response)
+        .await?;
+    if response.len() as u64 > MAX_RESPONSE {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "response is too large",
+        ));
+    }
     parse(&response)
 }
 
@@ -57,11 +75,18 @@ fn parse(response: &[u8]) -> io::Result<Health> {
     let (head, body) = text
         .split_once("\r\n\r\n")
         .ok_or_else(|| invalid("response has no body"))?;
-    let status = head.split(' ').nth(1).unwrap_or_default();
+    let status = head
+        .strip_prefix("HTTP/1.")
+        .and_then(|rest| rest.split(' ').nth(1))
+        .unwrap_or_default();
     if status != "200" {
         return Err(invalid(&format!("status {status}")));
     }
-    serde_json::from_str(body).map_err(io::Error::from)
+    let health: Health = serde_json::from_str(body).map_err(io::Error::from)?;
+    if health.status != "ok" {
+        return Err(invalid(&format!("health status {}", health.status)));
+    }
+    Ok(health)
 }
 
 #[cfg(test)]
@@ -89,6 +114,7 @@ mod tests {
         let health = probe_addr(addr, TIMEOUT).await.ok_or("no health")?;
         server.abort();
         assert_eq!(health.version, env!("CARGO_PKG_VERSION"));
+        assert!(health.uptime_s < 60, "{health:?}");
         Ok(())
     }
 
@@ -109,11 +135,34 @@ mod tests {
         Ok(())
     }
 
+    #[tokio::test]
+    async fn oversized_response_is_none() -> TestResult {
+        let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).await?;
+        let addr = listener.local_addr()?;
+        tokio::spawn(async move {
+            if let Ok((mut stream, _)) = listener.accept().await {
+                let _ = stream.write_all(b"HTTP/1.1 200 OK\r\n\r\n").await;
+                let chunk = vec![b' '; 4096];
+                while stream.write_all(&chunk).await.is_ok() {}
+            }
+        });
+        assert_eq!(probe_addr(addr, TIMEOUT).await, None);
+        Ok(())
+    }
+
     #[test]
     fn other_services_are_not_triage() {
         assert!(parse(b"HTTP/1.1 404 Not Found\r\n\r\n").is_err());
         assert!(parse(b"HTTP/1.1 200 OK\r\n\r\n<html>").is_err());
         assert!(parse(b"garbage").is_err());
+        assert!(
+            parse(b"SIP/2.0 200 OK\r\n\r\n{\"status\":\"ok\",\"version\":\"1\",\"uptime_s\":1}")
+                .is_err()
+        );
+        assert!(
+            parse(b"HTTP/1.1 200 OK\r\n\r\n{\"status\":\"down\",\"version\":\"1\",\"uptime_s\":1}")
+                .is_err()
+        );
     }
 
     #[test]
@@ -124,6 +173,7 @@ mod tests {
         assert_eq!(
             health,
             Health {
+                status: "ok".into(),
                 version: "1.2.3".into(),
                 uptime_s: 9
             }

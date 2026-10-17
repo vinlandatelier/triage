@@ -108,14 +108,22 @@ pub fn run(cli: Cli) -> Result<ExitCode, Error> {
     let _guard = telemetry::init(&config, &paths);
     config::log_data_dir_override(data_dir.as_deref());
     tracing::debug!(?config, ?paths, "startup");
-    match command {
-        Some(Command::Serve) => http::serve(config, paths)?,
-        Some(Command::Status) => return Ok(status(config.port)?),
-        Some(Command::Config(ConfigCommand::Show)) => show(&config, &paths),
-        Some(Command::Logs(LogsCommand::Path)) => logs_path(&paths),
-        Some(Command::Completions { .. }) | None => {}
-    }
-    Ok(ExitCode::SUCCESS)
+    Ok(match command {
+        Some(Command::Status) => status(config.port)?,
+        Some(Command::Serve) => {
+            http::serve(config, paths)?;
+            ExitCode::SUCCESS
+        }
+        Some(Command::Config(ConfigCommand::Show)) => {
+            show(&config, &paths);
+            ExitCode::SUCCESS
+        }
+        Some(Command::Logs(LogsCommand::Path)) => {
+            logs_path(&paths);
+            ExitCode::SUCCESS
+        }
+        Some(Command::Completions { .. }) | None => ExitCode::SUCCESS,
+    })
 }
 
 #[expect(clippy::print_stdout, reason = "CLI output")]
@@ -219,7 +227,9 @@ config_dir             /d/config
             (59, "59s"),
             (60, "1m"),
             (3599, "59m"),
+            (3600, "1h0m"),
             (3 * 3600 + 12 * 60 + 5, "3h12m"),
+            (86_400, "1d0h"),
             (86_400 + 7200 + 60, "1d2h"),
         ] {
             assert_eq!(uptime(secs), want, "{secs}");

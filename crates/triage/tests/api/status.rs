@@ -1,49 +1,42 @@
-use std::io::{BufRead as _, BufReader};
+use std::io::{Read as _, Write as _};
 use std::net::{Ipv4Addr, TcpListener};
 use std::path::Path;
-use std::process::{Child, Command, Output, Stdio};
-use std::sync::mpsc;
+use std::process::Output;
 use std::thread;
-use std::time::Duration;
 
-type TestResult = Result<(), Box<dyn std::error::Error>>;
-
-struct Daemon(Child);
-
-impl Drop for Daemon {
-    fn drop(&mut self) {
-        let _ = self.0.kill();
-        let _ = self.0.wait();
-    }
-}
-
-fn free_port() -> std::io::Result<u16> {
-    Ok(TcpListener::bind((Ipv4Addr::LOCALHOST, 0))?
-        .local_addr()?
-        .port())
-}
-
-fn triage(dir: &Path, port: u16) -> Command {
-    let mut command = Command::new(env!("CARGO_BIN_EXE_triage"));
-    command
-        .arg("--data-dir")
-        .arg(dir)
-        // Keeps a developer's `.env` out of the run.
-        .current_dir(dir)
-        .env("TRIAGE_PORT", port.to_string())
-        .env_remove("TRIAGE_OTEL_ENDPOINT")
-        .env_remove("OTEL_EXPORTER_OTLP_ENDPOINT");
-    command
-}
+use crate::helpers::{TestResult, serve, triage};
 
 fn status(dir: &Path, port: u16) -> std::io::Result<Output> {
-    triage(dir, port).arg("status").output()
+    triage(dir)
+        .arg("status")
+        .env("TRIAGE_PORT", port.to_string())
+        .output()
 }
 
 #[test]
 fn reports_not_running_and_exits_1() -> TestResult {
     let tmp = tempfile::tempdir()?;
-    let out = status(tmp.path(), free_port()?)?;
+    let port = TcpListener::bind((Ipv4Addr::LOCALHOST, 0))?
+        .local_addr()?
+        .port();
+    let out = status(tmp.path(), port)?;
+    assert_eq!(String::from_utf8(out.stdout)?, "not running\n");
+    assert_eq!(out.status.code(), Some(1));
+    Ok(())
+}
+
+#[test]
+fn another_service_on_the_port_is_not_running() -> TestResult {
+    let tmp = tempfile::tempdir()?;
+    let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0))?;
+    let port = listener.local_addr()?.port();
+    thread::spawn(move || {
+        if let Ok((mut stream, _)) = listener.accept() {
+            let _ = stream.read(&mut [0; 1024]);
+            let _ = stream.write_all(b"HTTP/1.1 404 Not Found\r\ncontent-length: 0\r\n\r\n");
+        }
+    });
+    let out = status(tmp.path(), port)?;
     assert_eq!(String::from_utf8(out.stdout)?, "not running\n");
     assert_eq!(out.status.code(), Some(1));
     Ok(())
@@ -52,34 +45,20 @@ fn reports_not_running_and_exits_1() -> TestResult {
 #[test]
 fn reports_version_and_port_when_running() -> TestResult {
     let tmp = tempfile::tempdir()?;
-    let port = free_port()?;
-    let mut daemon = Daemon(
-        triage(tmp.path(), port)
-            .arg("serve")
-            .env("TRIAGE_LOG_LEVEL", "info")
-            .stderr(Stdio::piped())
-            .spawn()?,
-    );
-    let stderr = daemon.0.stderr.take().ok_or("no stderr")?;
-    let (send, lines) = mpsc::channel();
-    thread::spawn(move || {
-        for line in BufReader::new(stderr).lines().map_while(Result::ok) {
-            if line.contains("listening") {
-                let _ = send.send(());
-            }
-        }
-    });
-    lines
-        .recv_timeout(Duration::from_secs(10))
-        .map_err(|_| "daemon never listened")?;
+    let (_daemon, addr, _lines) = serve(triage(tmp.path()))?;
 
-    let out = status(tmp.path(), port)?;
+    let out = status(tmp.path(), addr.port())?;
     let stdout = String::from_utf8(out.stdout)?;
-    let want = format!(
-        "running v{} on 127.0.0.1:{port}, up ",
-        env!("CARGO_PKG_VERSION")
+    let prefix = format!(
+        "running v{} on 127.0.0.1:{}, up ",
+        env!("CARGO_PKG_VERSION"),
+        addr.port()
     );
-    assert!(stdout.starts_with(&want), "{stdout}");
+    let uptime = stdout
+        .strip_prefix(&prefix)
+        .and_then(|rest| rest.strip_suffix("s\n"))
+        .ok_or_else(|| format!("unexpected output: {stdout}"))?;
+    assert!(uptime.parse::<u64>().is_ok(), "{stdout}");
     assert_eq!(out.status.code(), Some(0), "{stdout}");
     Ok(())
 }

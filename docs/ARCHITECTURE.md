@@ -28,7 +28,7 @@ triage/
       telemetry.rs       tracing layers, dormant otel
       telemetry/         columns.rs (stderr formatter) otel.rs (OTLP exporter)
       http.rs            serve: lock, bind, graceful shutdown
-      http/              router.rs state.rs middleware.rs assets.rs openapi.rs probe.rs
+      http/              router.rs state.rs middleware.rs json.rs assets.rs openapi.rs probe.rs
       store.rs           Store, store::Error
       store/             pool.rs query.rs schema.rs
       guardrails/        placeholder

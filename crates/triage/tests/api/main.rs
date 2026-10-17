@@ -7,4 +7,5 @@ mod openapi;
 mod request_tracing;
 mod scalar;
 mod schema;
+mod serve;
 mod status;

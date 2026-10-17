@@ -56,11 +56,22 @@ impl Error {
 
 pub type Result<T, E = Error> = std::result::Result<T, E>;
 
+/// Proof that this process owns the data dir. The OS drops it when the process dies, so a crash
+/// never leaves it stale.
+#[derive(Debug)]
+#[must_use = "dropping the lock lets another instance use the data dir"]
+pub struct Lock {
+    _file: File,
+}
+
+pub fn lock_data_dir(paths: &Paths) -> Result<Lock> {
+    let file = lock(&paths.lock_file(), &paths.data)?;
+    Ok(Lock { _file: file })
+}
+
 /// Runs in the foreground until SIGINT or SIGTERM, then drains for up to 10 s. A second
 /// signal during the drain exits at once.
-pub fn serve(config: Config, paths: Paths) -> Result<()> {
-    // The OS drops the lock when the process dies, so a crash never leaves it stale.
-    let _lock = lock(&paths.lock_file(), &paths.data)?;
+pub fn serve(config: Config, paths: Paths, _lock: Lock) -> Result<()> {
     let runtime = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()

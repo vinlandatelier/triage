@@ -2,7 +2,7 @@
 
 use std::fmt::Write as _;
 use std::io;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use clap::{CommandFactory, Parser, Subcommand};
@@ -141,16 +141,23 @@ pub fn run(cli: Cli) -> Result<ExitCode, Error> {
         return Ok(ExitCode::SUCCESS);
     }
     paths.create()?;
+    if let Some(Command::Serve) = command {
+        // Before telemetry, so a second instance never writes into the running one's log file.
+        let lock = http::lock_data_dir(&paths)?;
+        let _guard = start_telemetry(&config, &paths, data_dir.as_deref());
+        return Ok(match http::serve(config, paths, lock) {
+            Ok(()) => ExitCode::SUCCESS,
+            // Logged rather than returned, so it reaches the JSONL file and stderr shows it once.
+            Err(err) => {
+                tracing::error!(error = &err as &dyn std::error::Error, "serve failed");
+                ExitCode::from(err.exit_code())
+            }
+        });
+    }
     // Lives until `run` returns, which is when `main` exits.
-    let _guard = telemetry::init(&config, &paths);
-    config::log_data_dir_override(data_dir.as_deref());
-    tracing::debug!(?config, ?paths, "startup");
+    let _guard = start_telemetry(&config, &paths, data_dir.as_deref());
     Ok(match command {
         Some(Command::Status) => status(config.port)?,
-        Some(Command::Serve) => {
-            http::serve(config, paths)?;
-            ExitCode::SUCCESS
-        }
         Some(Command::Logs(LogsCommand::Path)) => {
             logs_path(&paths)?;
             ExitCode::SUCCESS
@@ -168,8 +175,17 @@ pub fn run(cli: Cli) -> Result<ExitCode, Error> {
             db_sql(&paths, &query, json)?;
             ExitCode::SUCCESS
         }
-        Some(Command::Completions { .. } | Command::Config(_)) | None => ExitCode::SUCCESS,
+        Some(Command::Completions { .. } | Command::Config(_) | Command::Serve) | None => {
+            ExitCode::SUCCESS
+        }
     })
+}
+
+fn start_telemetry(config: &Config, paths: &Paths, data_dir: Option<&Path>) -> telemetry::Guard {
+    let guard = telemetry::init(config, paths);
+    config::log_data_dir_override(data_dir);
+    tracing::debug!(?config, ?paths, "startup");
+    guard
 }
 
 /// Writes command output. A reader that closed the pipe early, as `head` does, is not an error.

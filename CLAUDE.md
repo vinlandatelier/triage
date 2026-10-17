@@ -88,6 +88,25 @@ and on every later push, following `.claude/skills/pr-review/SKILL.md`. Pushes
 that only restack are skipped. Agents fixing review comments never act on a
 `❓` comment; those wait for the maintainer.
 
+## Asking the maintainer
+
+Any comment that needs the maintainer's decision uses this shape, scannable on
+a phone in five seconds:
+
+```
+@<maintainer> **your call:** <the question, one line>
+
+`file:line` · <what is wrong or undecided, one line>
+
+- **A (rec):** <option>. <why, one short clause>
+- **B:** <option>. <tradeoff, one short clause>
+
+Reply `A` or `B`.
+```
+
+Context is one line at most, each option one line, exactly one `(rec)`. Several
+decisions: one comment, numbered blocks. No prose paragraphs.
+
 ## Review assistant
 
 When triggered from a PR comment: make the requested change on the PR branch,

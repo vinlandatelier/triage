@@ -64,7 +64,8 @@ these holds:
 - The issue or spec is vague or silent on the behaviour in question.
 - Two reasonable fixes lead to different product behaviour.
 
-Write it as `❓ @<maintainer> your call: <question>. Options: A) … B) …. Rec: A, <why>.`
+Write it as an inline comment starting with `❓`, in the "Asking the maintainer"
+format from `CLAUDE.md`.
 Agents that act on review comments never act on a `❓` comment.
 
 ## 6. Post

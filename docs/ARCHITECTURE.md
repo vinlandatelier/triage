@@ -51,7 +51,7 @@ A rule that names a check (CI, `just`, prek) holds now; the check enforces it on
 2. Product code lives in `features/<name>/` with exactly `mod.rs http.rs service.rs repo.rs model.rs`. Infra stays top level. CI checks the shape.
 3. Direction is `http → service → repo`. `http.rs` never imports `sqlx`; `repo.rs` never imports `axum`. CI greps for it.
 4. All fallible code returns `crate::error::Result<T>`. `AppError` is the only error type that crosses a feature boundary. `anyhow` only in `main.rs`, `cli.rs`, `build.rs`.
-5. `unwrap`, `expect`, `dbg!`, `todo!`, `println!`, `eprintln!` are clippy-denied in every target, tests included. `?` and `tracing` instead.
+5. `unwrap`, `expect`, `dbg!`, `todo!`, `println!`, `eprintln!` are clippy-denied. `clippy.toml` allows all but `todo!` in tests. `?` and `tracing` instead.
 6. All SQL lives in `repo.rs`, through `sqlx` macros, offline data committed in `.sqlx/`. Migrations are forward-only `.sql` files applied at startup.
 7. Every path comes from `config::Paths`. No `~` or hardcoded dirs anywhere else.
 8. `std::env::var` appears only in `config.rs`.

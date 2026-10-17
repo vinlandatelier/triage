@@ -16,7 +16,7 @@ default:
 
 # Install every dev tool. Safe to re-run.
 setup:
-    TRIAGE_USER_PATH={{ quote(user_path) }} ./scripts/setup.sh
+    @TRIAGE_USER_PATH={{ quote(user_path) }} ./scripts/setup.sh
 
 # Run every quality gate.
 check: fmt-check clippy check-layout deny machete db-prepare-check test check-web gen-api-check
@@ -127,7 +127,7 @@ openapi-check:
 
 # Pull each skill in .claude/skills/SOURCES.md to upstream HEAD for review. Never commits.
 skills-update:
-    ./scripts/skills-update.sh
+    @./scripts/skills-update.sh
 
 # Apply automatic fixes.
 fix:

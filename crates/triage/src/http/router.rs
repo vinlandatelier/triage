@@ -7,11 +7,12 @@ use super::middleware;
 use super::state::AppState;
 
 pub fn router(state: AppState) -> Router {
-    middleware::trace(
+    middleware::trace(middleware::problems(
         Router::new()
             .route("/health", get(health))
+            .fallback(middleware::fallback)
             .with_state(state),
-    )
+    ))
 }
 
 #[derive(Debug, Serialize)]

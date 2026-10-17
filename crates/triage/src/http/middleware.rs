@@ -1,11 +1,14 @@
-//! Request ids and the per-request `http` span.
+//! Request ids, the per-request `http` span, and problem+json error responses.
 
+use std::any::Any;
 use std::time::Duration;
 
 use axum::Router;
-use axum::extract::Request;
-use axum::http::{HeaderName, HeaderValue};
-use axum::response::Response;
+use axum::extract::{DefaultBodyLimit, Request};
+use axum::http::{HeaderName, HeaderValue, StatusCode, Uri};
+use axum::middleware::{self, Next};
+use axum::response::{IntoResponse as _, Response};
+use tower_http::catch_panic::CatchPanicLayer;
 use tower_http::classify::ServerErrorsFailureClass;
 use tower_http::request_id::{
     MakeRequestId, PropagateRequestIdLayer, RequestId, SetRequestIdLayer,
@@ -13,6 +16,8 @@ use tower_http::request_id::{
 use tower_http::trace::TraceLayer;
 use tracing::Span;
 use uuid::Uuid;
+
+use crate::error::{AppError, BODY_LIMIT, Problem};
 
 const X_REQUEST_ID: HeaderName = HeaderName::from_static("x-request-id");
 
@@ -34,7 +39,7 @@ pub fn trace(router: Router) -> Router {
                 .on_failure(on_failure),
         )
         .layer(SetRequestIdLayer::x_request_id(MakeRequestUuidV7))
-        .layer(axum::middleware::map_request(drop_unusable_request_id))
+        .layer(middleware::map_request(drop_unusable_request_id))
 }
 
 /// `SetRequestIdLayer` keeps any incoming header, so an empty, oversized, or non-ASCII id
@@ -51,6 +56,58 @@ async fn drop_unusable_request_id(mut request: Request) -> Request {
         request.headers_mut().remove(X_REQUEST_ID);
     }
     request
+}
+
+/// Caps request bodies, turns panics into 500s, and adds the request id as `instance` to
+/// every problem. Must sit inside [`trace`], which sets the id.
+pub fn problems(router: Router) -> Router {
+    router
+        .layer(DefaultBodyLimit::max(BODY_LIMIT))
+        .layer(CatchPanicLayer::custom(on_panic))
+        .layer(middleware::from_fn(render_problem))
+}
+
+#[expect(
+    clippy::needless_pass_by_value,
+    reason = "CatchPanicLayer hands over the payload by value"
+)]
+fn on_panic(payload: Box<dyn Any + Send + 'static>) -> Response {
+    let message = payload
+        .downcast_ref::<&str>()
+        .copied()
+        .or_else(|| payload.downcast_ref::<String>().map(String::as_str))
+        .unwrap_or("non-string panic payload");
+    AppError::Internal(anyhow::anyhow!("handler panicked: {message}")).into_response()
+}
+
+async fn render_problem(request: Request, next: Next) -> Response {
+    let instance = request
+        .extensions()
+        .get::<RequestId>()
+        .and_then(|id| Uri::try_from(id.header_value().as_bytes()).ok());
+    let mut response = next.run(request).await;
+    let problem = match response.extensions_mut().remove::<Problem>() {
+        Some(problem) => problem,
+        // axum's body-limit rejection is plain text.
+        None if response.status() == StatusCode::PAYLOAD_TOO_LARGE => {
+            AppError::PayloadTooLarge.problem()
+        }
+        None => return response,
+    };
+    match instance {
+        Some(instance) => problem.with_instance(instance).into_response(),
+        None => problem.into_response(),
+    }
+}
+
+/// Unknown `/api` paths answer with a problem; the rest stay free for the web UI.
+pub async fn fallback(uri: Uri) -> Response {
+    let path = uri.path();
+    if path == "/api" || path.starts_with("/api/") {
+        AppError::NotFound(format!("no route for {path}")).into_response()
+    } else {
+        StatusCode::NOT_FOUND.into_response()
+    }
 }
 
 /// Version 7 UUIDs, so ids sort by arrival.
@@ -138,12 +195,13 @@ mod tests {
         }
     }
 
-    async fn send(addr: SocketAddr, head: &str) -> io::Result<String> {
+    async fn send(addr: SocketAddr, head: &str, body: &[u8]) -> io::Result<String> {
         let exchange = async {
             let mut stream = TcpStream::connect(addr).await?;
             stream
                 .write_all(format!("{head}\r\nHost: x\r\nConnection: close\r\n\r\n").as_bytes())
                 .await?;
+            stream.write_all(body).await?;
             let mut response = String::new();
             stream.read_to_string(&mut response).await?;
             Ok(response)
@@ -164,6 +222,14 @@ mod tests {
         router: Router,
         head: &str,
     ) -> Result<(String, Vec<Value>), Box<dyn std::error::Error>> {
+        let (mut responses, lines) = serve_all(router, &[(head, b"")]).await?;
+        Ok((responses.pop().ok_or("no response")?, lines))
+    }
+
+    async fn serve_all(
+        router: Router,
+        requests: &[(&str, &[u8])],
+    ) -> Result<(Vec<String>, Vec<Value>), Box<dyn std::error::Error>> {
         let capture = Capture::default();
         let writer = capture.clone();
         let subscriber =
@@ -173,7 +239,10 @@ mod tests {
         let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).await?;
         let addr = listener.local_addr()?;
         let server = tokio::spawn(axum::serve(listener, trace(router)).into_future());
-        let response = send(addr, head).await?;
+        let mut responses = Vec::new();
+        for (head, body) in requests {
+            responses.push(send(addr, head, body).await?);
+        }
         server.abort();
 
         let bytes = capture.0.lock().map_err(|_| "poisoned")?.clone();
@@ -181,7 +250,7 @@ mod tests {
             .lines()
             .map(serde_json::from_str)
             .collect::<Result<_, _>>()?;
-        Ok((response, lines))
+        Ok((responses, lines))
     }
 
     #[tokio::test(flavor = "current_thread")]
@@ -244,10 +313,8 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn server_error_logs_one_line() -> TestResult {
-        let router = Router::new().route(
-            "/fail",
-            get(|| async { axum::http::StatusCode::INTERNAL_SERVER_ERROR }),
-        );
+        let router =
+            Router::new().route("/fail", get(|| async { StatusCode::INTERNAL_SERVER_ERROR }));
         let (_, lines) = serve_one(router, "GET /fail HTTP/1.1").await?;
         let [done] = lines.as_slice() else {
             return Err(format!("want one line, got {lines:?}").into());
@@ -255,6 +322,124 @@ mod tests {
         assert_eq!(done["message"], "response");
         assert_eq!(done["level"], "WARN");
         assert_eq!(done["status"], 500);
+        Ok(())
+    }
+
+    fn problem_body(response: &str) -> Result<Value, Box<dyn std::error::Error>> {
+        assert_eq!(
+            header(response, "content-type"),
+            Some("application/problem+json"),
+            "{response}"
+        );
+        let (_, body) = response.split_once("\r\n\r\n").ok_or("no body")?;
+        Ok(serde_json::from_str(body)?)
+    }
+
+    #[tokio::test]
+    async fn not_found_instance_is_the_request_id() -> TestResult {
+        let router = Router::new().route(
+            "/item",
+            get(|| async { Err::<(), _>(AppError::NotFound("no item 7".into())) }),
+        );
+        let (response, _) = serve_one(problems(router), "GET /item HTTP/1.1").await?;
+        assert!(response.starts_with("HTTP/1.1 404"), "{response}");
+        let id = header(&response, "x-request-id").ok_or("no id")?;
+        let body = problem_body(&response)?;
+        assert_eq!(body["instance"], id, "{body}");
+        assert_eq!(body["detail"], "no item 7", "{body}");
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn internal_logs_the_chain_under_the_request_id() -> TestResult {
+        let router = Router::new().route(
+            "/boom",
+            get(|| async {
+                let err = anyhow::anyhow!("disk full").context("cannot save");
+                Err::<(), _>(AppError::Internal(err))
+            }),
+        );
+        let (response, lines) = serve_one(problems(router), "GET /boom HTTP/1.1").await?;
+        assert!(response.starts_with("HTTP/1.1 500"), "{response}");
+        let id = header(&response, "x-request-id").ok_or("no id")?;
+        let body = problem_body(&response)?;
+        assert_eq!(body["instance"], id, "{body}");
+        assert!(body.get("detail").is_none(), "{body}");
+        assert!(!response.contains("disk full"), "{response}");
+
+        let logged = lines
+            .iter()
+            .find(|line| line["message"] == "internal error")
+            .ok_or("no error line")?;
+        assert_eq!(logged["level"], "ERROR", "{logged}");
+        assert_eq!(logged["error"], "cannot save: disk full", "{logged}");
+        assert_eq!(logged["request_id"], id, "{logged}");
+        Ok(())
+    }
+
+    async fn kaboom() -> &'static str {
+        panic!("kaboom")
+    }
+
+    #[tokio::test]
+    async fn panic_returns_a_problem_and_the_server_keeps_serving() -> TestResult {
+        let router = Router::new()
+            .route("/panic", get(kaboom))
+            .route("/ok", get(|| async { "ok" }));
+        let (responses, lines) = serve_all(
+            problems(router),
+            &[("GET /panic HTTP/1.1", b""), ("GET /ok HTTP/1.1", b"")],
+        )
+        .await?;
+        let [panicked, ok] = responses.as_slice() else {
+            return Err("want two responses".into());
+        };
+        assert!(panicked.starts_with("HTTP/1.1 500"), "{panicked}");
+        let id = header(panicked, "x-request-id").ok_or("no id")?;
+        assert_eq!(problem_body(panicked)?["instance"], id);
+        assert!(ok.starts_with("HTTP/1.1 200"), "{ok}");
+        assert!(
+            lines
+                .iter()
+                .any(|line| line["error"] == "handler panicked: kaboom" && line["request_id"] == id),
+            "{lines:?}"
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn oversized_body_is_a_413_problem() -> TestResult {
+        let router = Router::new().route(
+            "/upload",
+            axum::routing::post(|body: axum::body::Bytes| async move { body.len().to_string() }),
+        );
+        let big = vec![b'x'; BODY_LIMIT + 1];
+        let head = format!("POST /upload HTTP/1.1\r\nContent-Length: {}", big.len());
+        let (responses, _) = serve_all(problems(router), &[(&head, &big)]).await?;
+        let response = responses.first().ok_or("no response")?;
+        assert!(response.starts_with("HTTP/1.1 413"), "{response}");
+        let body = problem_body(response)?;
+        assert_eq!(
+            body["type"],
+            "https://triage.studio/problems/payload-too-large"
+        );
+        assert_eq!(
+            body["instance"],
+            header(response, "x-request-id").ok_or("no id")?
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn unknown_api_path_is_a_404_problem() -> TestResult {
+        let router = Router::new().fallback(fallback);
+        let (api, _) = serve_one(problems(router.clone()), "GET /api/nope HTTP/1.1").await?;
+        assert!(api.starts_with("HTTP/1.1 404"), "{api}");
+        assert_eq!(problem_body(&api)?["detail"], "no route for /api/nope");
+
+        let (other, _) = serve_one(problems(router), "GET /nope HTTP/1.1").await?;
+        assert!(other.starts_with("HTTP/1.1 404"), "{other}");
+        assert_eq!(header(&other, "content-type"), None, "{other}");
         Ok(())
     }
 }

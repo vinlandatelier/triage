@@ -12,6 +12,7 @@ name = "triage"
 path = "src/main.rs"
 
 [dependencies]
+anyhow = "1.0.104"
 axum = { version = "0.8.9", default-features = false, features = ["http1", "json", "tokio"] }
 clap = { version = "4.6.7", features = ["derive"] }
 clap_complete = "4.6.11"
@@ -21,12 +22,13 @@ figment = { version = "0.10.19", features = ["env"] }
 opentelemetry = { version = "0.33", default-features = false, features = ["trace"] }
 opentelemetry-otlp = { version = "0.33", default-features = false, features = ["http-proto", "reqwest-blocking-client", "trace"] }
 opentelemetry_sdk = { version = "0.33", default-features = false, features = ["trace"] }
+problem_details = { version = "0.11", features = ["axum"] }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"
 thiserror = "2.0.21"
 time = { version = "0.3.55", features = ["formatting", "local-offset", "macros"] }
 tokio = { version = "1.53.3", features = ["rt-multi-thread", "net", "signal", "time", "macros", "sync"] }
-tower-http = { version = "0.7.1", default-features = false, features = ["request-id", "trace"] }
+tower-http = { version = "0.7.1", default-features = false, features = ["catch-panic", "request-id", "trace"] }
 tracing = "0.1.44"
 tracing-appender = "0.2.5"
 tracing-opentelemetry = { version = "0.34", default-features = false }

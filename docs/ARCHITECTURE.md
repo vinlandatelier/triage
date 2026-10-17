@@ -35,7 +35,7 @@ triage/
   web/
     package.json vite.config.ts biome.json tsconfig.json env.ts index.html prek.toml
     src/
-      main.tsx routeTree.gen.ts error.ts
+      main.tsx routeTree.gen.ts error.ts fallbacks.tsx
       routes/            file-based
       api/               hey-api output, never edited
       components/ui/     shadcn vendored
@@ -129,7 +129,7 @@ Routes register through `utoipa_axum::router::OpenApiRouter` in `http::router::r
 
 ## Web
 
-`web/` is a Vite SPA. Routing is TanStack Router with file-based routes in `web/src/routes/`. `@tanstack/router-plugin/vite` runs with `autoCodeSplitting` and sits before `react()` in `vite.config.ts`, after `ValidateEnv()`. It writes `web/src/routeTree.gen.ts` on every `vite dev` and `vite build`; the file is committed, never edited, and excluded from Biome (and from knip once it lands). `main.tsx` builds the router and registers its type. `routes/__root.tsx` is the shell: a header, `<Outlet/>`, a `notFoundComponent` for unknown paths, and an `errorComponent` that shows the message and the request id when there is one. `web/src/error.ts::describeError` reads a problem+json body (`detail`, then `title`, request id from `instance`) or an `Error` (`message`, `requestId`).
+`web/` is a Vite SPA. Routing is TanStack Router with file-based routes in `web/src/routes/`. `@tanstack/router-plugin/vite` runs with `autoCodeSplitting` and sits before `react()` in `vite.config.ts`, after `ValidateEnv()`. It writes `web/src/routeTree.gen.ts` on every `vite dev` and `vite build`; the file is committed, never edited, and excluded from Biome (and from knip once it lands). `main.tsx` builds the router and registers its type. `routes/__root.tsx` is the shell: a header and `<Outlet/>`. `fallbacks.tsx` holds `NotFound` and `RouteError`; the root route uses them and `createRouter` sets them as `defaultNotFoundComponent` and `defaultErrorComponent`, so a child route's error or `notFound()` renders inside `<Outlet/>` and keeps the header. `RouteError` shows the message and the request id when there is one, and its retry calls `reset()` plus `router.invalidate()` so a failed loader runs again. `web/src/error.ts::describeError` reads a problem+json body (`detail`, then `title`, request id from `instance`) or an `Error` (`message`, `requestId`); empty strings count as missing.
 
 ## Observability
 

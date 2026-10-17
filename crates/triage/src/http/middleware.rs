@@ -80,7 +80,7 @@ mod tests {
     use tracing_subscriber::layer::SubscriberExt as _;
 
     use super::*;
-    use crate::telemetry::{JsonFields, JsonLines};
+    use crate::telemetry;
 
     type TestResult = Result<(), Box<dyn std::error::Error>>;
 
@@ -126,12 +126,8 @@ mod tests {
     ) -> Result<(String, Vec<Value>), Box<dyn std::error::Error>> {
         let capture = Capture::default();
         let writer = capture.clone();
-        let subscriber = tracing_subscriber::registry().with(
-            tracing_subscriber::fmt::layer()
-                .fmt_fields(JsonFields)
-                .event_format(JsonLines)
-                .with_writer(move || writer.clone()),
-        );
+        let subscriber =
+            tracing_subscriber::registry().with(telemetry::file_layer(move || writer.clone()));
         let _default = tracing::subscriber::set_default(subscriber);
 
         let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).await?;

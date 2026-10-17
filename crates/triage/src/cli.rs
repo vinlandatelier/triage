@@ -91,6 +91,7 @@ enum DbCommand {
     Check,
     /// Run one query on a read-only connection and print the rows
     Sql {
+        #[arg(allow_hyphen_values = true)]
         query: String,
         /// Print a JSON array of row objects instead of a table
         #[arg(long)]
@@ -247,8 +248,8 @@ fn schema_drift(want: &str, live: &str) -> Option<String> {
             (a, b) => {
                 return Some(format!(
                     "schema drift at line {line}\n  schema.sql  {}\n  database    {}\n",
-                    a.unwrap_or("(end)"),
-                    b.unwrap_or("(end)"),
+                    shown(a),
+                    shown(b),
                 ));
             }
         }
@@ -256,11 +257,19 @@ fn schema_drift(want: &str, live: &str) -> Option<String> {
     None
 }
 
+fn shown(line: Option<&str>) -> &str {
+    match line {
+        None => "(end)",
+        Some("") => "(blank line)",
+        Some(text) => text,
+    }
+}
+
 #[expect(clippy::print_stdout, reason = "CLI output")]
 fn db_sql(paths: &Paths, query: &str, json: bool) -> Result<(), Error> {
     let rows = block_on(async { store::query(&store::open_read_only(paths).await?, query).await })?;
     if json {
-        println!("{:#}", rows.to_json());
+        println!("{:#}", rows.to_json()?);
     } else {
         print!("{}", rows_table(&rows));
     }
@@ -273,16 +282,16 @@ fn rows_table(rows: &store::Rows) -> String {
     }
     let cell = |value: &serde_json::Value| match value {
         serde_json::Value::Null => "NULL".to_owned(),
-        serde_json::Value::String(text) => text.replace('\n', "⏎"),
+        serde_json::Value::String(text) => telemetry::one_line(text),
         other => other.to_string(),
     };
+    let header: Vec<String> = rows.columns.iter().map(telemetry::one_line).collect();
     let body: Vec<Vec<String>> = rows
         .rows
         .iter()
         .map(|row| row.iter().map(cell).collect())
         .collect();
-    let widths: Vec<usize> = rows
-        .columns
+    let widths: Vec<usize> = header
         .iter()
         .enumerate()
         .map(|(i, name)| {
@@ -292,7 +301,7 @@ fn rows_table(rows: &store::Rows) -> String {
         })
         .collect();
     let rule = widths.iter().map(|&width| "-".repeat(width)).collect();
-    [rows.columns.clone(), rule]
+    [header, rule]
         .iter()
         .chain(&body)
         .fold(String::new(), |mut table, line| {
@@ -371,19 +380,21 @@ config_dir             /d/config
     #[test]
     fn rows_table_pads_columns_and_marks_nulls_and_newlines() {
         let rows = store::Rows {
-            columns: vec!["id".into(), "note".into()],
+            columns: vec!["id".into(), "no\nte".into()],
             rows: vec![
-                vec![serde_json::json!(1), serde_json::json!("a\nb")],
+                vec![serde_json::json!(1), serde_json::json!("a\nb\r\nc")],
                 vec![serde_json::json!(200), serde_json::Value::Null],
+                vec![serde_json::json!(3), serde_json::json!("\t\u{1b}[31m")],
             ],
         };
         assert_eq!(
             rows_table(&rows),
             "\
-id   note
----  ----
-1    a⏎b
+id   no⏎te
+---  ------------
+1    a⏎b⏎c
 200  NULL
+3    \\x09\\x1b[31m
 "
         );
     }
@@ -398,6 +409,10 @@ id   note
         assert_eq!(
             schema_drift("a\n", "a\nb\n").as_deref(),
             Some("schema drift at line 2\n  schema.sql  (end)\n  database    b\n")
+        );
+        assert_eq!(
+            schema_drift("a\n", "a\n\nb\n").as_deref(),
+            Some("schema drift at line 2\n  schema.sql  (end)\n  database    (blank line)\n")
         );
     }
 

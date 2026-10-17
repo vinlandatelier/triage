@@ -42,9 +42,12 @@ pub async fn migrate(paths: &Paths) -> Result<usize> {
 }
 
 /// One connection opened with `SQLITE_OPEN_READONLY`, so writes fail inside SQLite itself.
-/// It neither creates the file nor migrates it.
+/// It never creates the database file or migrates it.
 pub async fn open_read_only(paths: &Paths) -> Result<SqlitePool> {
     let path = paths.db_file();
+    if !path.is_file() {
+        return Err(Error::Missing(path));
+    }
     let options = SqliteConnectOptions::new()
         .filename(&path)
         .read_only(true)
@@ -212,7 +215,7 @@ mod tests {
         let Err(err) = open_read_only(&paths).await else {
             return Err("a missing file must not open read-only".into());
         };
-        assert!(matches!(err, Error::Open { .. }), "{err:?}");
+        assert!(matches!(err, Error::Missing(_)), "{err:?}");
         assert!(!paths.db_file().exists());
 
         drop(open(&paths).await?);

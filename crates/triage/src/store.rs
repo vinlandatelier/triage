@@ -28,6 +28,12 @@ pub enum Error {
     Count(sqlx::Error),
     #[error("query failed: {0}")]
     Query(sqlx::Error),
+    #[error("no database at {}; run `triage db migrate` first", .0.display())]
+    Missing(PathBuf),
+    #[error("{0}")]
+    Input(&'static str),
+    #[error("column `{0}` appears twice; alias one so the JSON keys stay unique")]
+    DuplicateColumn(String),
 }
 
 impl Error {

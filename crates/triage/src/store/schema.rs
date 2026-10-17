@@ -10,7 +10,9 @@ pub const SCHEMA: &str = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/sche
 /// `.schema` order is not guaranteed, so this sorts by type then name for a stable diff.
 pub async fn dump(pool: &SqlitePool) -> Result<String> {
     let statements: Vec<String> = sqlx::query_scalar(
-        "SELECT sql FROM sqlite_schema WHERE sql NOT NULL ORDER BY type DESC, name",
+        // `ANALYZE` and `PRAGMA optimize` create `sqlite_stat*` tables at runtime.
+        "SELECT sql FROM sqlite_schema WHERE sql NOT NULL AND name NOT GLOB 'sqlite_stat*' \
+         ORDER BY type DESC, name",
     )
     .fetch_all(pool)
     .await

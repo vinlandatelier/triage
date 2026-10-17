@@ -129,7 +129,7 @@ setup:
         exit 1
     fi
 
-    bun install
+    bun install --frozen-lockfile
 
 # Run every quality gate.
 check:

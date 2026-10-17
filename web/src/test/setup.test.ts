@@ -1,7 +1,8 @@
-import { expect, test } from "vitest";
+import { expect, test, vi } from "vitest";
 import { unhandledRequests } from "@/test/setup";
 
 test("rejects and records a request that has no handler, even when the caller catches it", async () => {
+  const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
   await expect(fetch("http://localhost/api/unmocked")).rejects.toMatchObject({
     message: "fetch failed",
     cause: { type: "error" },
@@ -12,4 +13,5 @@ test("rejects and records a request that has no handler, even when the caller ca
     "GET http://localhost/api/unmocked",
     "GET http://localhost/api/caught",
   ]);
+  consoleError.mockRestore();
 });

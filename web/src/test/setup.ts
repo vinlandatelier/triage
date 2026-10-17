@@ -23,16 +23,25 @@ beforeAll(() =>
     },
   }),
 );
-afterEach(() => {
+// MSW records a request a macrotask after fetch() starts, so a fire-and-forget fetch needs the wait.
+async function failOnUnhandled() {
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  const unhandled = unhandledRequests.splice(0);
+  if (unhandled.length > 0)
+    throw new Error(`request without an MSW handler: ${unhandled.join(", ")}`);
+}
+
+afterEach(async () => {
   cleanup();
   server.resetHandlers();
   localStorage.clear();
   document.documentElement.className = "";
-  const unhandled = unhandledRequests.splice(0);
-  if (unhandled.length > 0)
-    throw new Error(`request without an MSW handler: ${unhandled.join(", ")}`);
+  await failOnUnhandled();
 });
-afterAll(() => server.close());
+afterAll(async () => {
+  await failOnUnhandled();
+  server.close();
+});
 
 // jsdom lacks matchMedia and its scrollTo only logs "not implemented". The router scrolls on navigation;
 // ThemeProvider resolves `system` with matchMedia.

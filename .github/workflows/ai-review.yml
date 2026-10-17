@@ -31,6 +31,16 @@ jobs:
        (github.event.action == 'synchronize' || github.event.label.name == 'request-ai-review'))
     runs-on: ubuntu-latest
     steps:
+      # A dispatch carries no PR payload, so the same-repo check above cannot see a fork PR.
+      # Its code would run with the secrets below.
+      - if: github.event_name == 'workflow_dispatch'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ inputs.pr }}
+        run: |
+          fork=$(gh pr view "$PR" -R "$GITHUB_REPOSITORY" --json isCrossRepository --jq .isCrossRepository)
+          [ "$fork" = false ] || { echo "PR #$PR comes from a fork; not reviewing it." >&2; exit 1; }
+
       - uses: actions/create-github-app-token@v1
         id: app
         with:
@@ -43,10 +53,10 @@ jobs:
           ref: ${{ github.event.pull_request.head.sha || format('refs/pull/{0}/head', inputs.pr) }}
           fetch-depth: 0
 
-      # Scope from the commit the assistant last reviewed, not event.before: a cancelled run
-      # never posts, so its commits stay in scope for the next one. A commit counts as new only
-      # if its patch is not already in what was reviewed; restacked and rebased-in lower-PR
-      # commits drop out, and a pure restack leaves nothing to review.
+      # Scope from refs/ai-reviewed/<pr>, the head of the last finished review. A review that
+      # finds nothing posts nothing, so the bot's review list alone would lag behind. A commit
+      # counts as new only if its patch is not already in what was reviewed; restacked and
+      # rebased-in lower-PR commits drop out, and a pure restack leaves nothing to review.
       - id: scope
         env:
           GH_TOKEN: ${{ steps.app.outputs.token }}
@@ -56,10 +66,15 @@ jobs:
         run: |
           full() { echo "mode=full" >> "$GITHUB_OUTPUT"; exit 0; }
           [ "$ACTION" = synchronize ] || full
-          last=$(gh api "repos/${{ github.repository }}/pulls/$PR/reviews" \
-            --jq '[.[] | select(.user.login == "vinland-ai[bot]")] | last | .commit_id // empty')
-          [ -n "$last" ] || full
-          git fetch -q origin "$last" || full
+          if git fetch -q origin "+refs/ai-reviewed/$PR:refs/ai-reviewed/$PR" 2>/dev/null; then
+            last=refs/ai-reviewed/$PR
+          else
+            # PRs reviewed before the ref existed: fall back to the bot's last posted review.
+            last=$(gh api --paginate "repos/$GITHUB_REPOSITORY/pulls/$PR/reviews" \
+              --jq '.[] | select(.user.login == "vinland-ai[bot]") | .commit_id' | tail -n 1)
+            [ -n "$last" ] || full
+            git fetch -q origin "$last" || full
+          fi
           ids() { git log -p --format='commit %H' "$1" | git patch-id --stable; }
           new=$(awk 'NR == FNR { seen[$1] = 1; next } !seen[$1] { print $2 }' \
             <(ids "origin/master..$last") <(ids "origin/$BASE..HEAD") | tr '\n' ' ')
@@ -78,5 +93,11 @@ jobs:
           claude_args: >-
             --model claude-opus-5-5 --max-turns 80
             --allowedTools "Bash,Read,Glob,Grep,Task"
-            --disallowedTools "Edit,Write,Bash(git push:*),Bash(gh pr merge:*),Bash(gh stack:*)"
-            --append-system-prompt "The maintainer is @${{ vars.MAINTAINER }}."
+            --disallowedTools "Edit,Write,Bash(git push:*),Bash(gh pr merge:*),Bash(gh stack:*),Bash(gh api *merge*)"
+            --append-system-prompt "The maintainer is @${{ vars.MAINTAINER || github.repository_owner }}."
+
+      # Runs only when the review finished, so a cancelled run leaves its commits in scope.
+      - name: record the reviewed head
+        env:
+          PR: ${{ github.event.pull_request.number || inputs.pr }}
+        run: git push -q --force origin "HEAD:refs/ai-reviewed/$PR"

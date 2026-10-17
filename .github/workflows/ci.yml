@@ -118,3 +118,4 @@ jobs:
           name: web-dist
           path: web/dist/
           if-no-files-found: error
+          retention-days: 7

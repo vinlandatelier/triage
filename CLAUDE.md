@@ -15,6 +15,8 @@ subprocess with the user's own login. No API keys.
 - Never push directly to `master`. Never merge; the maintainer merges.
 - The only rewrite of a pushed branch is a restack: `gh stack rebase`, then
   `gh stack push` (`--force-with-lease`). Never plain `--force`.
+- Stack operations go through `gh stack` only (`checkout`, `rebase`, `push`,
+  `sync`, `link`), never `git rebase` or a hand-run `git push --force-with-lease`.
 - Squash merge is the repo policy, so keep each PR to one logical change.
 - PR body: `Closes #N`, then `## what` (bullets), `## verify` (numbered steps),
   and `## why` / `## notes` only when needed. Bullets over paragraphs.

@@ -11,7 +11,8 @@ permissions:
   id-token: write
   actions: read
 
-# Merges in quick succession queue instead of racing on the same stack.
+# Merges in quick succession queue instead of racing on the same stack. The queue keeps one
+# pending run and cancels older ones, so each run restacks every stale stack, not just its own.
 concurrency:
   group: restack
   cancel-in-progress: false
@@ -32,33 +33,42 @@ jobs:
           token: ${{ steps.app.outputs.token }}
           fetch-depth: 0
 
-      # Skip the model session when no open PR is missing its base's latest commits.
+      # A PR is stale when it sits on another PR's branch and lacks that branch's tip, or when it
+      # still carries the merged PR's commits. A PR on master that is merely behind is not stale:
+      # squash merges never need it rebased.
       - id: stale
         env:
           GH_TOKEN: ${{ steps.app.outputs.token }}
+          MERGED: ${{ github.event.pull_request.head.sha }}
         run: |
-          n=0
-          while read -r head base; do
-            git merge-base --is-ancestor "origin/$base" "origin/$head" 2>/dev/null || n=$((n + 1))
-          done < <(gh pr list --state open --limit 200 --json headRefName,baseRefName --jq '.[] | "\(.headRefName) \(.baseRefName)"')
-          echo "count=$n" >> "$GITHUB_OUTPUT"
+          git fetch -q origin "$MERGED" || true
+          prs=""
+          while read -r n head base; do
+            if [ "$base" = master ]; then
+              git merge-base --is-ancestor "$MERGED" "origin/$head" 2>/dev/null || continue
+            else
+              git merge-base --is-ancestor "origin/$base" "origin/$head" 2>/dev/null && continue
+            fi
+            prs="$prs #$n"
+          done < <(gh pr list --state open --limit 500 --json number,headRefName,baseRefName --jq '.[] | "\(.number) \(.headRefName) \(.baseRefName)"')
+          echo "prs=$prs" >> "$GITHUB_OUTPUT"
 
-      - if: steps.stale.outputs.count != '0'
+      - if: steps.stale.outputs.prs != ''
         run: gh extension install github/gh-stack --pin v0.2.1
         env:
           GH_TOKEN: ${{ steps.app.outputs.token }}
 
-      - if: steps.stale.outputs.count != '0'
+      - if: steps.stale.outputs.prs != ''
         uses: anthropics/claude-code-action@v1
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           github_token: ${{ steps.app.outputs.token }}
           prompt: |
-            PR #${{ github.event.pull_request.number }} (branch `${{ github.event.pull_request.head.ref }}`) was just squash-merged into master.
-            Find every open PR whose base is `${{ github.event.pull_request.head.ref }}` or that GitHub retargeted to master because of this merge.
-            If there are none, end. Otherwise restack each one's stack following the Restacking section of CLAUDE.md.
+            PR #${{ github.event.pull_request.number }} was just squash-merged into master.
+            These open PRs are stale:${{ steps.stale.outputs.prs }}. Restack every stack that contains one, following the Restacking section of CLAUDE.md.
+            Include stacks unrelated to this merge: a run cancelled by the queue leaves its stacks for this one.
           claude_args: >-
             --model claude-opus-5-5 --max-turns 60
             --allowedTools "Bash,Edit,Write,Read,Glob,Grep"
-            --disallowedTools "Bash(gh pr merge:*),Bash(gh stack merge:*),Bash(git push --force *),Bash(git push -f *),Bash(git rebase:*),Bash(git push --force-with-lease*)"
-            --append-system-prompt "The maintainer is @${{ vars.MAINTAINER }}."
+            --disallowedTools "Bash(gh pr merge:*),Bash(gh stack merge:*),Bash(git push --force *),Bash(git push -f *),Bash(git rebase:*),Bash(git push --force-with-lease*),Bash(git push * --force*),Bash(git push * -f*),Bash(git push *+*),Bash(gh api *merge*)"
+            --append-system-prompt "The maintainer is @${{ vars.MAINTAINER || github.repository_owner }}."

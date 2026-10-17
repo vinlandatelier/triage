@@ -76,7 +76,7 @@ A rule that names a check (CI, `just`, prek) holds now; the check enforces it on
 - `just` ≥ 1.42, enforced at the top of the `justfile`.
 - `bacon.toml` holds the watch jobs. `just dev` runs `run-server`.
 - `prek.toml` holds the commit hooks. commitlint and its conventional config live in a prek-managed node env, not in `package.json`. actionlint, cargo, and `just` come from the system.
-- `renovate.json` opens grouped non-major updates weekly, plus lock file maintenance. Automerge is off.
+- `renovate.json` opens grouped non-major updates weekly, plus lock file maintenance. Regex custom managers bump the pins in `prek.toml`. Automerge is off.
 - `deny.toml` allows MIT, Apache-2.0, BSD-2-Clause, BSD-3-Clause, ISC, Unicode-3.0, MPL-2.0, Zlib, and crates.io as the only source.
 
 ## Dependency allowlist

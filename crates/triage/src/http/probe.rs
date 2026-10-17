@@ -14,7 +14,7 @@ const TIMEOUT: Duration = Duration::from_secs(2);
 // A real health body is under 100 bytes; the cap stops a foreign listener from filling memory.
 const MAX_RESPONSE: u64 = 16 * 1024;
 
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[derive(Debug, PartialEq, Eq, Deserialize)]
 pub struct Health {
     status: String,
     pub version: String,

@@ -27,7 +27,7 @@ serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"
 thiserror = "2.0.21"
 time = { version = "0.3.55", features = ["formatting", "local-offset", "macros"] }
-tokio = { version = "1.53.3", features = ["rt-multi-thread", "net", "signal", "time", "macros", "sync"] }
+tokio = { version = "1.53.3", features = ["rt-multi-thread", "net", "signal", "time", "macros", "sync", "io-util"] }
 tower-http = { version = "0.7.1", default-features = false, features = ["catch-panic", "request-id", "trace"] }
 tracing = "0.1.44"
 tracing-appender = "0.2.5"
@@ -41,7 +41,6 @@ figment = { version = "0.10.19", features = ["env", "test"] }
 insta = "1.49.0"
 tempfile = "3.27.0"
 time = { version = "0.3.55", features = ["parsing"] }
-tokio = { version = "1.53.3", features = ["io-util"] }
 
 [lints]
 workspace = true

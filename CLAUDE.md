@@ -66,14 +66,18 @@ for anything a recording cannot show. When it helps, without being asked:
 3. Pace it for a human: type with `pressSequentially(text, { delay: 60 })`,
    not `fill`, and hold about 1 s on each result. The main success flow gets
    most of the runtime; error states come after it and stay short.
-4. Check it before uploading: tile frames with
+4. Caption every step with one line in a small fixed `<div>` at the top of the
+   page, set through `page.evaluate` before the step runs. A viewer who never
+   read the PR must follow it. Name any input the viewer cannot see: spaces, a
+   stopped daemon, a mocked failure.
+5. Check it before uploading: tile frames with
    `ffmpeg -i <video> -vf "fps=2,scale=480:-1,tile=4x4" -frames:v 1 frames.png`
    and look at them. Every step must show for at least two frames, and nothing
    may look broken that the PR does not intend. Otherwise re-record, or fix the
    app.
-5. `scripts/walkthrough.sh <pr> <video>` converts it to a GIF, hosts it on
+6. `scripts/walkthrough.sh <pr> <video>` converts it to a GIF, hosts it on
    `refs/walkthroughs/<pr>`, and embeds it under `## walkthrough` in the PR body.
-6. Commit none of the temporary spec, config, or video.
+7. Commit none of the temporary spec, config, or video.
 
 ## Review assistant
 

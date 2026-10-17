@@ -12,18 +12,37 @@ subprocess with the user's own login. No API keys.
 - When a change depends on another unmerged PR, stack it with `gh stack` instead
   of waiting or bundling. Prefer a stack of small PRs over one large PR whenever
   the pieces are reviewable on their own.
-- Never force push. Never push directly to `master`. Never merge; the maintainer merges.
+- Never push directly to `master`. Never merge; the maintainer merges.
+- The only rewrite of a pushed branch is a restack: `gh stack rebase`, then
+  `gh stack push` (`--force-with-lease`). Never plain `--force`.
 - Squash merge is the repo policy, so keep each PR to one logical change.
 - PR body: `Closes #N`, then `## what` (bullets), `## verify` (numbered steps),
   and `## why` / `## notes` only when needed. Bullets over paragraphs.
 - Comments explain non-obvious why only. No restating code, no banners.
 - Documentation names no individual people. Use "the maintainer" or "the user".
 
+## Restacking
+
+A PR in a stack that changes, or a PR below it that merges, leaves the PRs above
+it behind. Restack them:
+
+1. `gh stack checkout <PR>`, then `gh stack rebase --upstack` (or `gh stack
+   rebase` after a merge).
+2. Resolve each conflict whose intent is clear, then `gh stack rebase --continue`:
+   - same change on both sides: keep one copy
+   - independent edits: keep both
+   - generated or lock files: take either side, regenerate with `just`
+   - otherwise keep what each PR's issue says that PR must do
+3. If a resolution needs a product decision, or both intents might not survive,
+   run `gh stack rebase --abort` and comment on that PR mentioning the
+   maintainer: one line per conflict with file, options, and a recommendation.
+4. Run the checks on each branch the rebase changed, then `gh stack push`.
+
 ## Review assistant
 
 When triggered from a PR comment: make the requested change on the PR branch,
-run the relevant checks, push, and reply in the same thread. Never merge, never
-force push, never touch `master`.
+run the relevant checks, push, restack if the PR has PRs above it, and reply in
+the same thread. Never merge, never touch `master`.
 
 Reply style. The reader is scanning on a phone between other work.
 

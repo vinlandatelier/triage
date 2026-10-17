@@ -29,6 +29,10 @@ fmt-check:
 clippy:
     cargo clippy --workspace --all-targets --locked -- -D warnings
 
+# Run every prek commit hook on the whole tree.
+hooks:
+    prek run --all-files
+
 # Fail on any breach of the layout rules in docs/ARCHITECTURE.md.
 check-layout:
     scripts/check-layout.sh

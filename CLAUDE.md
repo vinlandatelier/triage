@@ -22,6 +22,7 @@ Fresh clone: `just setup && just check`. CI runs the same recipes.
 | `just fmt-check` / `clippy` / `check-layout` / `test` | one Rust gate on its own; `test` is nextest |
 | `just deny` / `machete` | after adding or removing a Rust dependency |
 | `just check-web` | every web gate: lint, typecheck, doctor, knip, test |
+| `just hooks` | every prek commit hook on the whole tree, as CI runs it |
 | `just e2e` | Playwright against a fresh release build, after a UI flow changes |
 | `just build-web` / `build` | `web/dist/`, then the release binary with it embedded |
 | `just openapi` / `openapi-check` | after a route or response type changes |

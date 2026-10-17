@@ -181,7 +181,7 @@ Web tests run on Vitest with jsdom, configured in the `test` block of `web/vite.
 | edit hook | Claude Code PostToolUse on Edit/Write | `rustfmt` or `biome check --write` on that file |
 | prek | commit | fmt, clippy, layout check, biome, react-doctor, schema, openapi, and api client drift, builtin file checks, actionlint, commitlint |
 | `just check` | agent before PR, human anytime | fmt, clippy, layout, biome, react-doctor, schema, openapi + tsc, nextest, vitest, knip, cargo-deny, cargo-machete, sqlx offline check, api client drift |
-| CI | PR | `just check` split into jobs, ubuntu + macos for nextest, plus `just build-web`, then `just e2e` |
+| CI | PR | `just check` split into jobs, ubuntu + macos for nextest, plus `just hooks`, `just build-web`, then `just e2e` |
 
 `scripts/check-layout.sh` enforces rules 2, 3, and 8. It prints `file: rule` per violation and exits 1 on any. It ignores `//` comments, so docs may name the forbidden items.
 

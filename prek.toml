@@ -1,5 +1,6 @@
 default_install_hook_types = ["pre-commit", "commit-msg"]
 default_stages = ["pre-commit"]
+# prek also loads web/prek.toml as a workspace project; its hooks run from web/.
 
 [[repos]]
 repo = "builtin"

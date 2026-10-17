@@ -36,6 +36,7 @@ triage/
     tests/api/           main.rs helpers.rs <feature>.rs
   web/
     package.json vite.config.ts biome.json tsconfig.json env.ts index.html prek.toml components.json
+    doctor.config.ts knip.json
     src/
       main.tsx router.ts routeTree.gen.ts error.ts fallbacks.tsx index.css
       lib/utils.ts       cn()
@@ -139,7 +140,7 @@ Routes register through `utoipa_axum::router::OpenApiRouter` in `http::router::r
 
 ## Web
 
-`web/` is a Vite SPA. Routing is TanStack Router with file-based routes in `web/src/routes/`. `@tanstack/router-plugin/vite` runs with `autoCodeSplitting` and sits before `react()` in `vite.config.ts`, after `ValidateEnv()`. It writes `web/src/routeTree.gen.ts` on every `vite dev` and `vite build`; the file is committed, never edited, and excluded from Biome (and from knip once it lands). `router.ts::createAppRouter` builds the router and registers its type; `main.tsx` and the tests both call it. `routes/__root.tsx` is the shell: a header and `<Outlet/>`. `fallbacks.tsx` holds `NotFound` and `RouteError`; the root route uses them and `createAppRouter` sets them as `defaultNotFoundComponent` and `defaultErrorComponent`, so a child route's error or `notFound()` renders inside `<Outlet/>` and keeps the header. `RouteError` shows the message and the request id when there is one, and its retry calls `reset()` plus `router.invalidate()` so a failed loader runs again. `web/src/error.ts::describeError` reads a problem+json body (`detail`, then `title`, request id from `instance`) or an `Error` (`message`, `requestId`); empty strings count as missing.
+`web/` is a Vite SPA. Routing is TanStack Router with file-based routes in `web/src/routes/`. `@tanstack/router-plugin/vite` runs with `autoCodeSplitting` and sits before `react()` in `vite.config.ts`, after `ValidateEnv()`. It writes `web/src/routeTree.gen.ts` on every `vite dev` and `vite build`; the file is committed, never edited, and excluded from Biome. knip needs no ignore for it, since nothing in it goes unused. `router.ts::createAppRouter` builds the router and registers its type; `main.tsx` and the tests both call it. `routes/__root.tsx` is the shell: a header and `<Outlet/>`. `fallbacks.tsx` holds `NotFound` and `RouteError`; the root route uses them and `createAppRouter` sets them as `defaultNotFoundComponent` and `defaultErrorComponent`, so a child route's error or `notFound()` renders inside `<Outlet/>` and keeps the header. `RouteError` shows the message and the request id when there is one, and its retry calls `reset()` plus `router.invalidate()` so a failed loader runs again. `web/src/error.ts::describeError` reads a problem+json body (`detail`, then `title`, request id from `instance`) or an `Error` (`message`, `requestId`); empty strings count as missing.
 
 Styling is Tailwind 4 through `@tailwindcss/vite` (last in `plugins`) and shadcn v4 with Base UI (`components.json`, style `base-nova`). `src/index.css` holds the Tailwind imports and the shadcn theme variables; the `dark` variant matches descendants of `.dark` on `<html>`, and `color-scheme` follows the theme so native controls match. Add a component with `bunx shadcn add <name>`, which runs the pinned CLI, from `web/`; it lands in `src/components/ui/` and is then ours to edit. Imports use `@/` for `src/`, defined once in `tsconfig.json` `paths` and read by Vite through `resolve.tsconfigPaths`. Biome parses Tailwind directives (`css.parser.tailwindDirectives`). shadcn's generated `utils.ts` and font import were replaced with `clsx` + `tailwind-merge` and the system font, because the code may import only allowlisted packages; re-check `package.json` after any `shadcn` command.
 
@@ -168,11 +169,15 @@ Web tests run on Vitest with jsdom, configured in the `test` block of `web/vite.
 | layer | trigger | runs |
 |---|---|---|
 | edit hook | Claude Code PostToolUse on Edit/Write | `cargo fmt` or `biome check --write` on that file |
-| prek | commit | fmt, clippy, layout check, biome, tsc, react.doctor, schema and openapi drift, builtin file checks, actionlint, commitlint |
-| `just check` | agent before PR, human anytime | prek set + nextest, vitest, knip, cargo-deny, cargo-machete, sqlx offline check |
+| prek | commit | fmt, clippy, layout check, biome, react-doctor, schema and openapi drift, builtin file checks, actionlint, commitlint |
+| `just check` | agent before PR, human anytime | prek set + tsc, nextest, vitest, knip, cargo-deny, cargo-machete, sqlx offline check |
 | CI | PR | `just check` split into jobs, ubuntu + macos for nextest |
 
 `scripts/check-layout.sh` enforces rules 2, 3, and 8. It prints `file: rule` per violation and exits 1 on any. It ignores `//` comments, so docs may name the forbidden items.
+
+`just check-web` runs `bun run lint`, `typecheck`, `doctor`, `knip`, and `test`, in that order. `doctor` is react-doctor with `-y --no-telemetry --blocking warning`, so a warning fails it. `web/doctor.config.ts` keeps the recommended rules and turns off the Socket.dev supply-chain scan, which makes one network request per dependency. react-doctor turns on its `tanstack-query` rules by itself once `@tanstack/react-query` is a dependency. `web/knip.json` adds `src/routes/**`, `env.ts`, and `doctor.config.ts` as entries; everything else is knip's zero-config defaults. When hey-api output lands in `src/api/`, add it to knip's `ignore`.
+
+prek runs `web/prek.toml` as a workspace project, found by discovery, with paths relative to `web/`. Its hooks run `biome check --write` on staged web files and `react-doctor --staged` when a staged file is `.tsx`. `tsc` is a `manual` stage hook (`prek run --stage manual tsc`) because it checks the whole project. After adding or moving a nested `prek.toml`, run `prek list --refresh`; prek caches the workspace layout.
 
 ## Agent skills
 

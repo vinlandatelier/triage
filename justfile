@@ -152,10 +152,12 @@ machete:
 
 test:
     cargo nextest run --workspace --locked --no-tests=pass
-    bun run lint
-    bun run typecheck
 
 check-web:
+    bun run lint
+    bun run typecheck
+    bun run doctor
+    bun run knip
     bun run test
 
 # Regenerate crates/triage/schema.sql from a freshly migrated database.

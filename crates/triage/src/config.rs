@@ -87,6 +87,16 @@ pub enum LogFormat {
     Compact,
 }
 
+impl fmt::Display for LogFormat {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(match self {
+            Self::Columns => "columns",
+            Self::Pretty => "pretty",
+            Self::Compact => "compact",
+        })
+    }
+}
+
 #[derive(Clone, PartialEq, Eq, Deserialize)]
 #[serde(default)]
 pub struct Config {
@@ -162,7 +172,8 @@ impl Config {
         }
     }
 
-    /// Each env var with its value, formatted through `Debug` so [`Secret`] fields print redacted.
+    /// Each env var with its value as it would be set, `-` when unset. Format a [`Secret`] field
+    /// through `Debug` so it prints redacted.
     pub fn entries(&self) -> Vec<(String, String)> {
         // Exhaustive so a new field fails to compile until it is listed here.
         let Self {
@@ -172,24 +183,20 @@ impl Config {
             log_format,
             otel_endpoint,
         } = self;
-        // `Url`'s `Debug` dumps every component, and its string form keeps userinfo credentials.
-        let otel_endpoint = otel_endpoint.as_ref().map(redact_userinfo);
-        let fields: [(&str, &dyn fmt::Debug); 5] = [
-            ("port", port),
-            ("log_level", log_level),
-            ("log_file_level", log_file_level),
-            ("log_format", log_format),
-            ("otel_endpoint", &otel_endpoint),
-        ];
-        fields
-            .into_iter()
-            .map(|(key, value)| {
-                (
-                    format!("{ENV_PREFIX}{}", key.to_uppercase()),
-                    format!("{value:?}"),
-                )
-            })
-            .collect()
+        // A `Url`'s string form keeps userinfo credentials.
+        let otel_endpoint = otel_endpoint
+            .as_ref()
+            .map_or_else(|| "-".to_owned(), redact_userinfo);
+        [
+            ("port", port.to_string()),
+            ("log_level", log_level.clone()),
+            ("log_file_level", log_file_level.clone()),
+            ("log_format", log_format.to_string()),
+            ("otel_endpoint", otel_endpoint),
+        ]
+        .into_iter()
+        .map(|(key, value)| (format!("{ENV_PREFIX}{}", key.to_uppercase()), value))
+        .collect()
     }
 }
 
@@ -662,10 +669,10 @@ mod tests {
             config.entries(),
             [
                 ("TRIAGE_PORT", "7311"),
-                ("TRIAGE_LOG_LEVEL", "\"info\""),
-                ("TRIAGE_LOG_FILE_LEVEL", "\"info,triage=debug\""),
-                ("TRIAGE_LOG_FORMAT", "Columns"),
-                ("TRIAGE_OTEL_ENDPOINT", "Some(\"http://localhost:4317/\")"),
+                ("TRIAGE_LOG_LEVEL", "info"),
+                ("TRIAGE_LOG_FILE_LEVEL", "info,triage=debug"),
+                ("TRIAGE_LOG_FORMAT", "columns"),
+                ("TRIAGE_OTEL_ENDPOINT", "http://localhost:4317/"),
             ]
             .map(|(k, v)| (k.to_owned(), v.to_owned()))
         );
@@ -683,10 +690,7 @@ mod tests {
             .iter()
             .find(|(key, _)| key == OTEL_ENDPOINT_VAR)
             .map(|(_, value)| value.as_str());
-        assert_eq!(
-            endpoint,
-            Some("Some(\"http://redacted:redacted@host:4317/v1?x=1\")")
-        );
+        assert_eq!(endpoint, Some("http://redacted:redacted@host:4317/v1?x=1"));
         Ok(())
     }
 

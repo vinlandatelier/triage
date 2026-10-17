@@ -387,10 +387,10 @@ mod tests {
             config_table(&Config::default(), &paths()),
             "\
 TRIAGE_PORT            7311
-TRIAGE_LOG_LEVEL       \"info\"
-TRIAGE_LOG_FILE_LEVEL  \"info,triage=debug\"
-TRIAGE_LOG_FORMAT      Columns
-TRIAGE_OTEL_ENDPOINT   None
+TRIAGE_LOG_LEVEL       info
+TRIAGE_LOG_FILE_LEVEL  info,triage=debug
+TRIAGE_LOG_FORMAT      columns
+TRIAGE_OTEL_ENDPOINT   -
 data_dir               /d
 logs_dir               /d/logs
 config_dir             /d/config

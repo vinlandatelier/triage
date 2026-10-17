@@ -4,7 +4,7 @@ use std::time::Duration;
 
 use axum::Router;
 use axum::extract::Request;
-use axum::http::HeaderValue;
+use axum::http::{HeaderName, HeaderValue};
 use axum::response::Response;
 use tower_http::request_id::{
     MakeRequestId, PropagateRequestIdLayer, RequestId, SetRequestIdLayer,
@@ -13,8 +13,13 @@ use tower_http::trace::TraceLayer;
 use tracing::Span;
 use uuid::Uuid;
 
-/// Gives every request an `x-request-id` (kept if the client sent one), a span carrying it,
-/// and the same header on the response.
+const X_REQUEST_ID: HeaderName = HeaderName::from_static("x-request-id");
+
+/// Longest incoming id kept; anything longer is replaced.
+const MAX_INCOMING_ID: usize = 128;
+
+/// Gives every request an `x-request-id` (kept if the client sent a usable one), a span
+/// carrying it, and the same header on the response.
 pub fn trace(router: Router) -> Router {
     // The last `layer` call is outermost, so the id is set before the span reads it.
     router
@@ -24,9 +29,28 @@ pub fn trace(router: Router) -> Router {
                 .make_span_with(make_span)
                 .on_request(())
                 .on_eos(())
-                .on_response(on_response),
+                .on_response(on_response)
+                // The span already records a 5xx `status`; the default adds a second ERROR line.
+                .on_failure(()),
         )
         .layer(SetRequestIdLayer::x_request_id(MakeRequestUuidV7))
+        .layer(axum::middleware::map_request(drop_unusable_request_id))
+}
+
+/// `SetRequestIdLayer` keeps any incoming header, so an empty, oversized, or non-ASCII id
+/// would reach the logs and response. Spaces are rejected so an id cannot fake extra
+/// columns in the stderr line.
+async fn drop_unusable_request_id(mut request: Request) -> Request {
+    let usable = request.headers().get(X_REQUEST_ID).is_none_or(|value| {
+        let bytes = value.as_bytes();
+        !bytes.is_empty()
+            && bytes.len() <= MAX_INCOMING_ID
+            && bytes.iter().all(u8::is_ascii_graphic)
+    });
+    if !usable {
+        request.headers_mut().remove(X_REQUEST_ID);
+    }
+    request
 }
 
 /// Version 7 UUIDs, so ids sort by arrival.
@@ -43,9 +67,9 @@ impl MakeRequestId for MakeRequestUuidV7 {
 
 fn make_span(request: &Request) -> Span {
     let request_id = request
-        .headers()
-        .get("x-request-id")
-        .and_then(|value| value.to_str().ok())
+        .extensions()
+        .get::<RequestId>()
+        .and_then(|id| id.header_value().to_str().ok())
         .unwrap_or_default();
     tracing::info_span!(
         "http",
@@ -59,7 +83,7 @@ fn make_span(request: &Request) -> Span {
 fn on_response(response: &Response, latency: Duration, span: &Span) {
     let status = response.status().as_u16();
     span.record("status", status);
-    // Debug keeps stderr to the span's close line while the JSONL file still gets one line per request.
+    // Debug keeps stderr to the span's close line while the default file filter still gets one line per request.
     tracing::debug!(
         status,
         latency_ms = latency.as_secs_f64() * 1000.0,
@@ -102,13 +126,16 @@ mod tests {
     }
 
     async fn send(addr: SocketAddr, head: &str) -> io::Result<String> {
-        let mut stream = TcpStream::connect(addr).await?;
-        stream
-            .write_all(format!("{head}\r\nHost: x\r\nConnection: close\r\n\r\n").as_bytes())
-            .await?;
-        let mut response = String::new();
-        stream.read_to_string(&mut response).await?;
-        Ok(response)
+        let exchange = async {
+            let mut stream = TcpStream::connect(addr).await?;
+            stream
+                .write_all(format!("{head}\r\nHost: x\r\nConnection: close\r\n\r\n").as_bytes())
+                .await?;
+            let mut response = String::new();
+            stream.read_to_string(&mut response).await?;
+            Ok(response)
+        };
+        tokio::time::timeout(Duration::from_secs(10), exchange).await?
     }
 
     fn header<'a>(response: &'a str, name: &str) -> Option<&'a str> {
@@ -144,7 +171,7 @@ mod tests {
         Ok((response, lines))
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "current_thread")]
     async fn handler_events_carry_the_response_request_id() -> TestResult {
         let router = Router::new().route(
             "/work",
@@ -171,7 +198,7 @@ mod tests {
         Ok(())
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "current_thread")]
     async fn incoming_request_id_is_kept() -> TestResult {
         let (response, lines) = serve_one(
             Router::new(),
@@ -182,6 +209,38 @@ mod tests {
         let done = lines.last().ok_or("no line")?;
         assert_eq!(done["request_id"], "from-client");
         assert_eq!(done["status"], 404);
+        Ok(())
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn unusable_incoming_request_id_is_replaced() -> TestResult {
+        let long = "a".repeat(MAX_INCOMING_ID + 1);
+        for sent in ["", "x  status=500  req=y", "caf\u{e9}", long.as_str()] {
+            let (response, lines) = serve_one(
+                Router::new(),
+                &format!("GET /missing HTTP/1.1\r\nx-request-id: {sent}"),
+            )
+            .await?;
+            let id = header(&response, "x-request-id").ok_or(response.clone())?;
+            assert_eq!(Uuid::parse_str(id)?.get_version_num(), 7, "{sent:?}");
+            let done = lines.last().ok_or("no line")?;
+            assert_eq!(done["request_id"], id, "{sent:?}");
+        }
+        Ok(())
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn server_error_logs_one_line() -> TestResult {
+        let router = Router::new().route(
+            "/fail",
+            get(|| async { axum::http::StatusCode::INTERNAL_SERVER_ERROR }),
+        );
+        let (_, lines) = serve_one(router, "GET /fail HTTP/1.1").await?;
+        let [done] = lines.as_slice() else {
+            return Err(format!("want one line, got {lines:?}").into());
+        };
+        assert_eq!(done["message"], "response");
+        assert_eq!(done["status"], 500);
         Ok(())
     }
 }

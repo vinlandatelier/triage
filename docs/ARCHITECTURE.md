@@ -1,12 +1,12 @@
 # Architecture
 
-Cross-initiative facts. The loop reads this file every session. Any PR that adds a crate, module, invariant, or dependency updates it in the same PR.
+Cross-feature facts. The loop reads this file every session. Any PR that adds a crate, module, invariant, or dependency updates it in the same PR.
 
 ## Shape
 
 One binary, `triage`, is daemon and CLI. A React SPA is served by the daemon in release and by Vite in dev. Discord is the phone surface. Claude Code runs as a subprocess with the user's own login; there are no API keys.
 
-The tree is the target layout. Files appear as the tickets that need them land.
+The tree is the target layout. Files appear as the slices that need them land.
 
 ```
 triage/
@@ -58,7 +58,7 @@ triage/
 
 ## Rules
 
-A rule that names a check (CI, `just`, prek) holds now; the check enforces it once the ticket that adds the check lands.
+A rule that names a check (CI, `just`, prek) holds now; the check enforces it once the slice that adds the check lands.
 
 1. One crate until a trigger fires: a heavy independent dependency set, a second binary, or incremental `cargo check` over 10 s. Then split the module into a new crate under `crates/<name>`.
 2. Product code lives in `features/<name>/` with exactly `mod.rs http.rs service.rs repo.rs model.rs`. Infra stays top level. `just check-layout` checks the shape.
@@ -181,7 +181,7 @@ Web tests run on Vitest with jsdom, configured in the `test` block of `web/vite.
 | edit hook | Claude Code PostToolUse on Edit/Write | `rustfmt` or `biome check --write` on that file |
 | prek | commit | fmt, clippy, layout check, biome, react-doctor, schema, openapi, and api client drift, builtin file checks, actionlint, commitlint |
 | `just check` | agent before PR, human anytime | fmt, clippy, layout, biome, react-doctor, schema, openapi + tsc, nextest, vitest, knip, cargo-deny, cargo-machete, sqlx offline check, api client drift |
-| CI | PR | `just check` split into jobs, ubuntu + macos for nextest, plus `just build-web`, then `just e2e` |
+| CI | PR | `rust` (ubuntu + macos) and `web` jobs run the `just check` recipes, then `e2e`; `gate` is the one required check |
 
 `scripts/check-layout.sh` enforces rules 2, 3, and 8. It prints `file: rule` per violation and exits 1 on any. It ignores `//` comments, so docs may name the forbidden items.
 
@@ -189,9 +189,9 @@ Web tests run on Vitest with jsdom, configured in the `test` block of `web/vite.
 
 `just check-web` runs `bun run lint`, `typecheck`, `doctor`, `knip`, and `test`, in that order. `doctor` is react-doctor with `-y --no-telemetry --blocking warning`, so a warning fails it. `web/doctor.config.ts` keeps the recommended rules and turns off the Socket.dev supply-chain scan, which makes one network request per dependency. react-doctor turns on its `tanstack-query` rules by itself once `@tanstack/react-query` is a dependency. `web/knip.json` adds `src/routes/**/*.tsx`, `env.ts`, and `doctor.config.ts` as entries; everything else is knip's zero-config defaults. `src/api/**` is in knip's `ignore`.
 
-The CI `web` job runs `bun install --frozen-lockfile`, `just check-web`, `just gen-api-check`, then `just build-web`, and uploads `web/dist/` as the `web-dist` artifact, kept 7 days. The `test` job needs `web` and downloads that artifact into `web/dist/` before `just test`.
+CI has three real jobs plus plumbing. `changes` (dorny/paths-filter) decides which run: `rust` on any Rust, web, script, or justfile change (build.rs embeds `web/dist`, so web changes rebuild the crate), `web` on any web, generator, or `openapi.json` change, `workflows` (actionlint) on `.github/` changes. `rust` runs on ubuntu and macos: `bun install` and `just build-web` first so `build.rs` finds `web/dist/`, then `fmt-check`, `clippy`, `deny`, `machete`, `check-layout`, `db-prepare-check`, `db-schema-check`, `openapi-check`, `test`. `web` runs `just check-web`, `just gen-api-check`, `just build-web`, and uploads `web/dist/` as the `web-dist` artifact, kept 7 days. `gate` needs every job with `if: always()` and fails on any failed or cancelled one; branch protection requires only `gate`, so jobs can be added or path-skipped without touching the rule. `ai-review` and `assistant` are not checks.
 
-`just e2e` runs `just build`, then Playwright (`bun run e2e`) on Chromium only. Playwright needs Node 24, not bun. `web/playwright.config.ts` starts `target/release/triage serve` as its `webServer` on port 7313, off 7311 and 7312 so a running daemon does not collide, with `--data-dir` set to a fresh `mktemp -d` so every run starts with an empty database. It waits on `/health` and never reuses a running server. Specs live in `web/e2e/*.spec.ts`; Vitest's `include` is limited to `src/**/*.test.{ts,tsx}` so it skips them. `just check` does not run e2e. The CI `e2e` job needs `test`, installs Node 24 and Chromium with its system deps, runs `just e2e`, and uploads `web/test-results/` (traces kept on failure) when it fails.
+`just e2e` runs `just build`, then Playwright (`bun run e2e`) on Chromium only. Playwright needs Node 24, not bun. `web/playwright.config.ts` starts `target/release/triage serve` as its `webServer` on port 7313, off 7311 and 7312 so a running daemon does not collide, with `--data-dir` set to a fresh `mktemp -d` so every run starts with an empty database. It waits on `/health` and never reuses a running server. Specs live in `web/e2e/*.spec.ts`; Vitest's `include` is limited to `src/**/*.test.{ts,tsx}` so it skips them. `just check` does not run e2e. The CI `e2e` job needs `rust` and `web`, installs Node 24 and Chromium with its system deps, runs `just e2e`, and uploads `web/test-results/` (traces kept on failure) when it fails.
 
 `just gen-api-check` regenerates `web/src/api/` and fails when the result differs from the git index or adds untracked files, so staged output passes. prek runs it when `openapi.json`, `tools/gen-api/`, or `web/src/api/` changes.
 

@@ -13,6 +13,7 @@ use figment::Figment;
 use figment::error::Kind;
 use figment::providers::Env;
 use serde::Deserialize;
+use tracing_subscriber::EnvFilter;
 use url::Url;
 
 /// Env vars that must be set before startup. M0 has none.
@@ -137,7 +138,28 @@ impl Config {
                     otel_standard_endpoint(std::env::var(OTEL_STANDARD_VAR).ok())?;
             }
         }
+        config.validate()?;
         Ok(config)
+    }
+
+    /// Checks what serde cannot: the log filters must parse as `EnvFilter` directives.
+    fn validate(&self) -> Result<()> {
+        let invalid: Vec<String> = [
+            ("TRIAGE_LOG_LEVEL", &self.log_level),
+            ("TRIAGE_LOG_FILE_LEVEL", &self.log_file_level),
+        ]
+        .into_iter()
+        .filter_map(|(var, directives)| {
+            EnvFilter::try_new(directives)
+                .err()
+                .map(|err| format!("{var}: {err}"))
+        })
+        .collect();
+        if invalid.is_empty() {
+            Ok(())
+        } else {
+            Err(Error::Invalid(invalid))
+        }
     }
 
     /// Each env var with its value, formatted through `Debug` so [`Secret`] fields print redacted.
@@ -474,6 +496,23 @@ mod tests {
             let message = err.to_string();
             assert!(message.contains("TRIAGE_PORT"), "{message}");
             assert!(message.contains("u16"), "{message}");
+            Ok(())
+        })
+    }
+
+    #[test]
+    fn invalid_log_levels_exit_2_naming_each_var() -> figment::Result<()> {
+        Jail::try_with(|jail| {
+            jail.clear_env();
+            jail.set_env("TRIAGE_LOG_LEVEL", "info,=[");
+            jail.set_env("TRIAGE_LOG_FILE_LEVEL", "triage=loud");
+            let Err(err) = Config::from_env() else {
+                return Err("invalid log levels must fail".into());
+            };
+            assert_eq!(err.exit_code(), 2);
+            let message = err.to_string();
+            assert!(message.contains("TRIAGE_LOG_LEVEL:"), "{message}");
+            assert!(message.contains("TRIAGE_LOG_FILE_LEVEL:"), "{message}");
             Ok(())
         })
     }

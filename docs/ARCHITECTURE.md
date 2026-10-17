@@ -116,7 +116,7 @@ On Linux, an unset XDG var falls back to `~/.local/share`, `~/.local/state`, or 
 
 ## Config
 
-`config::Config` is extracted by figment from `TRIAGE_*` env vars, with `.env` read in debug builds only. `config::REQUIRED` lists vars that must be set; the preflight names every missing one in one error. A missing or malformed var exits 2 naming the var. Wrap secret values in `config::Secret<T>`, whose `Debug` prints `[redacted]`. Startup errors stay outside `AppError`: config code returns `config::Result`. `otel_endpoint` falls back to the standard `OTEL_EXPORTER_OTLP_ENDPOINT` when `TRIAGE_OTEL_ENDPOINT` is unset.
+`config::Config` is extracted by figment from `TRIAGE_*` env vars, with `.env` read in debug builds only. `config::REQUIRED` lists vars that must be set; the preflight names every missing one in one error. A missing or malformed var exits 2 naming the var; `Config::validate` also rejects `TRIAGE_LOG_LEVEL` and `TRIAGE_LOG_FILE_LEVEL` values that are not valid `EnvFilter` directives. Wrap secret values in `config::Secret<T>`, whose `Debug` prints `[redacted]`. Startup errors stay outside `AppError`: config code returns `config::Result`. `otel_endpoint` falls back to the standard `OTEL_EXPORTER_OTLP_ENDPOINT` when `TRIAGE_OTEL_ENDPOINT` is unset.
 
 ## CLI
 

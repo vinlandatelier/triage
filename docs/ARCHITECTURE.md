@@ -24,7 +24,7 @@ triage/
       telemetry.rs       tracing layers, dormant otel
       telemetry/         columns.rs (stderr formatter) otel.rs (OTLP exporter)
       http.rs            serve: lock, bind, graceful shutdown
-      http/              router.rs state.rs middleware.rs assets.rs
+      http/              router.rs state.rs middleware.rs probe.rs assets.rs
       store/             pool.rs
       guardrails/        placeholder
       features/
@@ -109,7 +109,7 @@ On Linux, an unset XDG var falls back to `~/.local/share`, `~/.local/state`, or 
 
 ## CLI
 
-`cli.rs` owns the clap definition and dispatch; `main.rs` only parses and maps errors to exit codes. `triage config show` prints every `Config` var and each resolved path, aligned, with values formatted through `Debug` so `Secret<T>` prints `[redacted]`. URL userinfo prints as `redacted`. `Config::entries` destructures `Config` exhaustively, so a new field must be added there to compile. `triage completions <bash|zsh|fish>` writes a script to stdout and runs before config loads. `triage logs path` prints the absolute path of today's JSONL file (UTC date), whether or not it exists yet; `telemetry::log_file` builds the name from the same prefix and suffix as the appender.
+`cli.rs` owns the clap definition and dispatch; `main.rs` only parses and maps errors to exit codes. `triage config show` prints every `Config` var and each resolved path, aligned, with values formatted through `Debug` so `Secret<T>` prints `[redacted]`. URL userinfo prints as `redacted`. `Config::entries` destructures `Config` exhaustively, so a new field must be added there to compile. `triage completions <bash|zsh|fish>` writes a script to stdout and runs before config loads. `triage logs path` prints the absolute path of today's JSONL file (UTC date), whether or not it exists yet; `telemetry::log_file` builds the name from the same prefix and suffix as the appender. `triage status` sends `GET /health` to `127.0.0.1:$TRIAGE_PORT` through `http::probe`, a hand-written HTTP/1.1 request over `tokio::net::TcpStream` with a 2 s timeout and a 16 KiB response cap, because no HTTP client crate is allowlisted. It prints `running vX.Y.Z on 127.0.0.1:<port>, up 3h12m` and exits 0, or prints `not running` and exits 1 when nothing answers or the answer is not a triage health body. `cli::run` returns the process `ExitCode`.
 
 ## Server
 

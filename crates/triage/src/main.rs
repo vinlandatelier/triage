@@ -6,7 +6,7 @@ use triage::cli::{self, Cli};
 
 fn main() -> ExitCode {
     match cli::run(Cli::parse()) {
-        Ok(()) => ExitCode::SUCCESS,
+        Ok(code) => code,
         Err(err) => {
             // No tracing subscriber exists yet when config fails.
             let _ = writeln!(std::io::stderr(), "error: {err}");

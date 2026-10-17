@@ -3,6 +3,7 @@
 use std::fmt::Write as _;
 use std::io;
 use std::path::PathBuf;
+use std::process::ExitCode;
 
 use clap::{CommandFactory, Parser, Subcommand};
 use clap_complete::Shell;
@@ -53,6 +54,8 @@ pub struct Cli {
 enum Command {
     /// Run the daemon in the foreground on `127.0.0.1:$TRIAGE_PORT`
     Serve,
+    /// Report whether the daemon is running; exits 1 when it is not
+    Status,
     /// Inspect the resolved configuration
     #[command(subcommand)]
     Config(ConfigCommand),
@@ -92,12 +95,12 @@ impl From<CompletionShell> for Shell {
     }
 }
 
-pub fn run(cli: Cli) -> Result<(), Error> {
+pub fn run(cli: Cli) -> Result<ExitCode, Error> {
     // Completions must work before config exists, e.g. during install.
     let Cli { data_dir, command } = cli;
     if let Some(Command::Completions { shell }) = command {
         completions(shell, &mut io::stdout());
-        return Ok(());
+        return Ok(ExitCode::SUCCESS);
     }
     let config = Config::load()?;
     let paths = Paths::resolve(data_dir.clone())?;
@@ -105,13 +108,46 @@ pub fn run(cli: Cli) -> Result<(), Error> {
     let _guard = telemetry::init(&config, &paths);
     config::log_data_dir_override(data_dir.as_deref());
     tracing::debug!(?config, ?paths, "startup");
-    match command {
-        Some(Command::Serve) => http::serve(config, paths)?,
-        Some(Command::Config(ConfigCommand::Show)) => show(&config, &paths),
-        Some(Command::Logs(LogsCommand::Path)) => logs_path(&paths),
-        Some(Command::Completions { .. }) | None => {}
+    Ok(match command {
+        Some(Command::Status) => status(config.port)?,
+        Some(Command::Serve) => {
+            http::serve(config, paths)?;
+            ExitCode::SUCCESS
+        }
+        Some(Command::Config(ConfigCommand::Show)) => {
+            show(&config, &paths);
+            ExitCode::SUCCESS
+        }
+        Some(Command::Logs(LogsCommand::Path)) => {
+            logs_path(&paths);
+            ExitCode::SUCCESS
+        }
+        Some(Command::Completions { .. }) | None => ExitCode::SUCCESS,
+    })
+}
+
+#[expect(clippy::print_stdout, reason = "CLI output")]
+fn status(port: u16) -> http::Result<ExitCode> {
+    let Some(health) = http::probe(port)? else {
+        println!("not running");
+        return Ok(ExitCode::FAILURE);
+    };
+    println!(
+        "running v{} on 127.0.0.1:{port}, up {}",
+        health.version,
+        uptime(health.uptime_s)
+    );
+    Ok(ExitCode::SUCCESS)
+}
+
+fn uptime(secs: u64) -> String {
+    let (days, hours, mins) = (secs / 86_400, secs / 3600 % 24, secs / 60 % 60);
+    match (days, hours, mins) {
+        (0, 0, 0) => format!("{secs}s"),
+        (0, 0, _) => format!("{mins}m"),
+        (0, _, _) => format!("{hours}h{mins}m"),
+        _ => format!("{days}d{hours}h"),
     }
-    Ok(())
 }
 
 #[expect(clippy::print_stdout, reason = "CLI output")]
@@ -182,6 +218,22 @@ logs_dir               /d/logs
 config_dir             /d/config
 "
         );
+    }
+
+    #[test]
+    fn uptime_keeps_the_two_largest_units() {
+        for (secs, want) in [
+            (0, "0s"),
+            (59, "59s"),
+            (60, "1m"),
+            (3599, "59m"),
+            (3600, "1h0m"),
+            (3 * 3600 + 12 * 60 + 5, "3h12m"),
+            (86_400, "1d0h"),
+            (86_400 + 7200 + 60, "1d2h"),
+        ] {
+            assert_eq!(uptime(secs), want, "{secs}");
+        }
     }
 
     #[test]

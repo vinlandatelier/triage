@@ -95,7 +95,10 @@ where
         )?;
         write_level(&mut writer, *meta.level())?;
         let module = meta.target().rsplit("::").next().unwrap_or_default();
-        write!(writer, " {module:<MODULE_WIDTH$}  {}", fields.message)?;
+        write!(writer, " {module:<MODULE_WIDTH$}")?;
+        if !fields.message.is_empty() {
+            write!(writer, "  {}", fields.message)?;
+        }
         let indent = PREFIX_WIDTH + module.chars().count().max(MODULE_WIDTH) + 2;
         if !fields.pairs.is_empty() {
             write!(writer, "  {}", fields.pairs)?;
@@ -367,7 +370,16 @@ mod tests {
         let (head, tail) = line.split_once("  req=").ok_or(line)?;
         let (head, duration) = head.rsplit_once("  ").ok_or(line)?;
         insta::assert_snapshot!(head, @"12:34:56.789 INFO  middleware  request  method=GET status=200");
-        assert!(duration.ends_with('s'), "{line}");
+        let shaped = duration
+            .strip_suffix("µs")
+            .is_some_and(|n| n.parse::<u64>().is_ok())
+            || duration
+                .strip_suffix("ms")
+                .is_some_and(|n| n.parse::<f64>().is_ok())
+            || duration
+                .strip_suffix('s')
+                .is_some_and(|n| n.parse::<f64>().is_ok());
+        assert!(shaped, "{line}");
         assert_eq!(tail, "r3");
         Ok(())
     }
@@ -425,6 +437,13 @@ mod tests {
             "{out:?}"
         );
         assert_eq!(out.matches('\x1b').count(), 2, "{out:?}");
+        Ok(())
+    }
+
+    #[test]
+    fn event_without_message_has_single_gap() -> TestResult {
+        let out = render(false, || tracing::info!(target: "triage::x", count = 1))?;
+        insta::assert_snapshot!(out, @"12:34:56.789 INFO  x         count=1");
         Ok(())
     }
 

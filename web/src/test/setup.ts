@@ -11,12 +11,15 @@ beforeAll(() =>
   server.listen({
     onUnhandledFrame({ frame, defaults }) {
       const { data } = frame;
-      unhandledRequests.push(
+      const label =
         data instanceof Object && "request" in data && data.request instanceof Request
           ? `${data.request.method} ${data.request.url}`
-          : frame.protocol,
-      );
+          : frame.protocol;
+      unhandledRequests.push(label);
       defaults.error();
+      // defaults.error() only logs, and returning passes the request to the real network.
+      // A thrown Response.error() makes fetch reject with `fetch failed` instead.
+      throw Response.error();
     },
   }),
 );

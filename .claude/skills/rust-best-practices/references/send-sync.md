@@ -47,13 +47,13 @@ The compiler implements `Send` and `Sync` automatically:
 ### Arc and Arc<Mutex<T>>
 
 ```rust
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, PoisonError};
 
 // Arc<T> is Send + Sync only if T is Send + Sync
 let shared = Arc::new(Mutex::new(HashMap::new()));
 let clone = Arc::clone(&shared);
 thread::spawn(move || {
-    clone.lock().unwrap().insert("key", "value");
+    clone.lock().unwrap_or_else(PoisonError::into_inner).insert("key", "value");
 });
 ```
 
@@ -69,10 +69,10 @@ Putting a non-`Send`/`Sync` type in `Arc` doesn't make it thread-safe.
 
 ```rust
 use std::sync::{OnceLock, LazyLock};
+use std::time::Instant;
 
 static CONFIG: OnceLock<Config> = OnceLock::new();          // explicit init
-static REGEX: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"^\d+$").unwrap());        // init on first access
+static STARTED: LazyLock<Instant> = LazyLock::new(Instant::now); // init on first access
 ```
 
 Both are `Sync` despite interior mutability because they can only be written once. Use `std::sync::LazyLock` (stable since 1.80), not the `once_cell` crate.

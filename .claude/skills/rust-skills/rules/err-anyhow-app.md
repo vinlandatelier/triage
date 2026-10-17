@@ -1,6 +1,8 @@
 # err-anyhow-app
 
-> Use `anyhow` for application error handling
+> Use `anyhow` only in `main.rs`, `cli.rs`, `build.rs`, and as the `AppError::Internal` payload
+
+Triage (docs/ARCHITECTURE.md rule 4): all other fallible code returns `crate::error::Result<T>`, and `AppError` is the only error type that crosses a feature boundary. The examples below show general practice.
 
 ## Why It Matters
 

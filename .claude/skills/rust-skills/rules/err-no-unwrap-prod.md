@@ -1,6 +1,8 @@
 # err-no-unwrap-prod
 
-> Avoid `unwrap()` in production code; use `?`, `expect()`, or handle errors
+> No `unwrap()` or `expect()` outside tests; use `?` or handle the error
+
+Triage (docs/ARCHITECTURE.md rule 5): clippy denies `unwrap_used` and `expect_used` outside tests, so the `expect()` examples below do not compile here.
 
 ## Why It Matters
 

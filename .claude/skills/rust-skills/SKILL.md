@@ -59,11 +59,11 @@ Reference these guidelines when:
 ### 1. Error Handling (CRITICAL)
 
 - [`err-thiserror-lib`](rules/err-thiserror-lib.md) - Use `thiserror` for library error types
-- [`err-anyhow-app`](rules/err-anyhow-app.md) - Use `anyhow` for application error handling
+- [`err-anyhow-app`](rules/err-anyhow-app.md) - Use `anyhow` only in `main.rs`, `cli.rs`, `build.rs`, and as the `AppError::Internal` payload
 - [`err-result-over-panic`](rules/err-result-over-panic.md) - Return `Result<T, E>` instead of panicking for recoverable errors
 - [`err-context-chain`](rules/err-context-chain.md) - Add context with `.context()` or `.with_context()`
-- [`err-no-unwrap-prod`](rules/err-no-unwrap-prod.md) - Avoid `unwrap()` in production code; use `?`, `expect()`, or handle errors
-- [`err-expect-bugs-only`](rules/err-expect-bugs-only.md) - Use `expect()` only for invariants that indicate bugs, not user errors
+- [`err-no-unwrap-prod`](rules/err-no-unwrap-prod.md) - No `unwrap()` or `expect()` outside tests; use `?` or handle the error
+- [`err-expect-bugs-only`](rules/err-expect-bugs-only.md) - No `expect()` outside tests; a broken invariant returns `AppError::Internal`
 - [`err-question-mark`](rules/err-question-mark.md) - Use `?` operator for clean propagation
 - [`err-from-impl`](rules/err-from-impl.md) - Implement `From<E>` for error conversions to enable `?` operator
 - [`err-source-chain`](rules/err-source-chain.md) - Preserve error chains with `#[source]` or `source()` method

@@ -284,6 +284,11 @@ impl Paths {
         Ok(paths)
     }
 
+    /// Held by `triage serve` so only one instance uses this data dir.
+    pub fn lock_file(&self) -> PathBuf {
+        self.data.join("triage.lock")
+    }
+
     fn under(dir: PathBuf) -> Self {
         Self {
             logs: dir.join("logs"),

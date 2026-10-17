@@ -13,9 +13,8 @@ command = ["cargo", "nextest", "run", "--workspace", "--no-tests=pass", "--hide-
 need_stdout = true
 analyzer = "nextest"
 
-# Runs `--help` until the `serve` subcommand lands.
 [jobs.run-server]
-command = ["cargo", "run", "--", "--help"]
+command = ["cargo", "run", "--", "serve"]
 need_stdout = true
 allow_warnings = true
 background = false

@@ -1,9 +1,15 @@
 #!/usr/bin/env bash
-# walkthrough.sh <pr> <video>: turn a recording into a GIF, host it on the pr-assets branch, embed it in the PR body.
+# walkthrough.sh <pr> <video>: turn a recording into a GIF, host it in the <repo>-assets repo, embed it in the PR body.
+# The GIFs live in their own repo so clones and CI checkouts of this one never download them.
 set -euo pipefail
 pr=$1 video=$2
 repo=${REPO:-$(gh repo view --json nameWithOwner --jq .nameWithOwner)}
-command -v ffmpeg >/dev/null || { echo "walkthrough.sh: ffmpeg is not installed" >&2; exit 1; }
+assets=${ASSETS_REPO:-$repo-assets}
+if ! command -v ffmpeg >/dev/null; then
+  # Installed here, not in the workflow, so runs that record nothing skip the install.
+  if command -v apt-get >/dev/null; then sudo apt-get update -qq && sudo apt-get install -qq -y ffmpeg
+  else echo "walkthrough.sh: install ffmpeg first (brew install ffmpeg)" >&2; exit 1; fi
+fi
 tmp=$(mktemp -d); trap 'rm -rf "$tmp"' EXIT
 gif=$tmp/walkthrough.gif
 
@@ -15,20 +21,16 @@ for w in 960 800 640 480; do
 done
 (( size < 10000000 )) || { echo "gif still ${size}B at 480px; record a shorter run" >&2; exit 1; }
 
-# Plumbing instead of a checkout: no worktree, no local branch, so parallel lanes never collide.
-for attempt in 1 2 3; do
-  rm -f "$tmp/idx"; base=""
-  if git fetch -q origin pr-assets 2>/dev/null; then base=$(git rev-parse FETCH_HEAD); GIT_INDEX_FILE=$tmp/idx git read-tree "$base"; fi
-  blob=$(git hash-object -w "$gif")
-  GIT_INDEX_FILE=$tmp/idx git update-index --add --cacheinfo "100644,$blob,pr/$pr/walkthrough.gif"
-  tree=$(GIT_INDEX_FILE=$tmp/idx git write-tree)
-  commit=$(git commit-tree "$tree" ${base:+-p "$base"} -m "chore: walkthrough for #$pr")
-  git push -q origin "$commit:refs/heads/pr-assets" 2> >(grep -v "^remote:" >&2) && break
-  [[ $attempt -eq 3 ]] && exit 1
-done
+# A new file per recording: no sha to look up, and parallel lanes never collide.
+python3 - "$gif" "$tmp/put.json" "$pr" <<'PY'
+import base64, json, sys
+gif, out, pr = sys.argv[1:]
+json.dump({"message": f"walkthrough for #{pr}", "content": base64.b64encode(open(gif, "rb").read()).decode()}, open(out, "w"))
+PY
+path="pr/$pr/$(date +%s).gif"
+commit=$(gh api -X PUT "repos/$assets/contents/$path" --input "$tmp/put.json" --jq .commit.sha)
 
-# Commit-pinned URL so a re-recording never shows a cached old GIF.
-url="https://raw.githubusercontent.com/$repo/$commit/pr/$pr/walkthrough.gif"
+url="https://raw.githubusercontent.com/$assets/$commit/$path"
 gh pr view "$pr" -R "$repo" --json body --jq .body >"$tmp/body.md"
 python3 - "$tmp/body.md" "$url" <<'PY'
 import re, sys

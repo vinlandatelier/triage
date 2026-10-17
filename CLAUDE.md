@@ -59,10 +59,12 @@ for anything a recording cannot show. When it helps, without being asked:
 1. Write a Playwright spec that clicks through the change in under 20 seconds.
    Prefer an existing e2e spec. Record with video on and `slowMo` about 300 ms,
    via a temporary config that extends the repo's.
-2. If the branch has no Playwright yet, run it ad hoc (`bunx playwright` or
-   `npx playwright`). Never add it as a dependency for a walkthrough.
-3. `scripts/walkthrough.sh <pr> <video>` converts it to a GIF, hosts it on the
-   `pr-assets` branch, and embeds it under `## walkthrough` in the PR body.
+2. Install the browser first on a fresh machine or runner:
+   `bunx playwright install --with-deps chromium`. If the branch has no
+   Playwright yet, run it ad hoc (`bunx playwright` or `npx playwright`). Never
+   add it as a dependency for a walkthrough.
+3. `scripts/walkthrough.sh <pr> <video>` converts it to a GIF, hosts it in the
+   `triage-assets` repo, and embeds it under `## walkthrough` in the PR body.
 4. Commit none of the temporary spec, config, or video.
 
 ## Review assistant

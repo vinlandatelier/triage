@@ -15,12 +15,14 @@ use crate::config::{Config, Paths};
 use crate::{store, telemetry};
 
 mod assets;
+mod json;
 mod middleware;
 mod openapi;
 mod probe;
 mod router;
 mod state;
 
+pub use json::Json;
 pub use openapi::{api_doc, api_json};
 pub use probe::{Health, probe};
 pub use router::router;

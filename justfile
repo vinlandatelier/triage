@@ -169,6 +169,10 @@ check-web:
 build-web:
     bun run build
 
+# Build the release binary with the web UI embedded.
+build: build-web
+    cargo build --release --locked
+
 # Regenerate web/src/api, the typed client, from crates/triage/openapi.json.
 gen-api:
     bun run gen:api

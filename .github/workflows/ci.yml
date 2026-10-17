@@ -78,6 +78,7 @@ jobs:
       - run: just db-prepare-check
 
   test:
+    needs: web
     strategy:
       fail-fast: false
       matrix:
@@ -90,6 +91,10 @@ jobs:
       - uses: taiki-e/install-action@v2
         with:
           tool: just,cargo-nextest
+      - uses: actions/download-artifact@v4
+        with:
+          name: web-dist
+          path: web/dist/
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version-file: .bun-version

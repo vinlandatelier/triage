@@ -132,7 +132,7 @@ setup:
     bun install --frozen-lockfile && prek install --install-hooks
 
 # Run every quality gate.
-check: fmt-check clippy deny machete test check-web
+check: fmt-check clippy deny machete db-prepare-check test check-web
 
 fmt-check:
     cargo fmt --all --check
@@ -166,6 +166,32 @@ db-schema:
 # Fail when crates/triage/schema.sql no longer matches the migrations.
 db-schema-check:
     cargo nextest run --workspace --locked -E 'test(=schema::schema_dump_is_current)'
+
+# Regenerate crates/triage/.sqlx, the offline query data the sqlx macros compile against.
+db-prepare:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    just _with-migrated-db cargo sqlx prepare -- --all-targets --locked
+
+# Fail when crates/triage/.sqlx no longer matches the queries.
+db-prepare-check:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    just _with-migrated-db cargo sqlx prepare --check -- --all-targets --locked
+
+# sqlx-cli migrates instead of `triage db migrate`, which cannot build while .sqlx is stale.
+[no-cd]
+[private]
+_with-migrated-db +cmd:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    dir="$(mktemp -d)"
+    trap 'rm -rf "$dir"' EXIT
+    export DATABASE_URL="sqlite:$dir/triage.db"
+    sqlx database create
+    sqlx migrate run --source "{{justfile_directory()}}/crates/triage/migrations" >/dev/null
+    cd "{{justfile_directory()}}/crates/triage"
+    {{cmd}}
 
 # Regenerate crates/triage/openapi.json from the registered routes.
 openapi:

@@ -1,9 +1,8 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { helloListOptions } from "@/api/@tanstack/react-query.gen";
+import { HelloPage } from "@/features/hello/hello-page";
 
 export const Route = createFileRoute("/")({
-  component: Home,
+  loader: ({ context }) => context.queryClient.ensureQueryData(helloListOptions()),
+  component: HelloPage,
 });
-
-function Home() {
-  return <h1>Triage</h1>;
-}

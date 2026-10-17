@@ -1,7 +1,7 @@
 import { HttpResponse } from "msw";
 import { expect, test } from "vitest";
 import { type HealthGetResponse, healthGet } from "@/api";
-import { ProblemError } from "@/error";
+import { NetworkError, ProblemError } from "@/error";
 import { createQueryClient } from "@/query";
 import { mock } from "@/test/handlers";
 import { server } from "@/test/setup";
@@ -61,4 +61,10 @@ test("a handler cannot return a body the generated type lacks", () => {
     // @ts-expect-error `uptime` is not a field of `Health`.
     HttpResponse.json({ status: "ok", version: "0.0.0", uptime: 1 }),
   );
+});
+
+test("a request with no response rejects with a NetworkError", async () => {
+  server.use(mock<HealthGetResponse>("get", "/health", () => HttpResponse.error()));
+  const error = await healthGet().catch((e: unknown) => e);
+  expect(error).toBeInstanceOf(NetworkError);
 });

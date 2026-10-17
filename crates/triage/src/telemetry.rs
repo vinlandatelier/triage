@@ -2,6 +2,7 @@
 
 use std::collections::HashSet;
 use std::fmt::{self, Write as _};
+use std::fs;
 use std::io::{self, IsTerminal};
 use std::path::Path;
 
@@ -21,7 +22,7 @@ use tracing_subscriber::registry::LookupSpan;
 use tracing_subscriber::util::SubscriberInitExt as _;
 use tracing_subscriber::{EnvFilter, Layer, Registry};
 
-use crate::config::{Config, LogFormat, Paths};
+use crate::config::{self, Config, LogFormat, Paths};
 
 const MAX_LOG_FILES: usize = 7;
 
@@ -123,10 +124,11 @@ fn stderr_layer(format: LogFormat, filter: EnvFilter) -> BoxedLayer {
 }
 
 fn file_appender(dir: &Path) -> Result<RollingFileAppender, String> {
-    // tracing-appender prints its own stderr line for a non-directory, which would double the warning.
-    if !dir.is_dir() {
-        return Err("not a directory".into());
-    }
+    // tracing-appender reports an unreadable or unwritable dir with its own stderr lines,
+    // which would double the warning, so fail first with the real io error.
+    fs::read_dir(dir)
+        .and_then(|_| config::probe_writable(dir))
+        .map_err(|err| err.to_string())?;
     RollingFileAppender::builder()
         .rotation(Rotation::DAILY)
         .filename_prefix("triage")
@@ -541,6 +543,10 @@ mod tests {
 
         let tmp = tempfile::tempdir()?;
         fs::set_permissions(tmp.path(), fs::Permissions::from_mode(0o500))?;
+        // Root ignores the mode bits, so there is nothing to test.
+        if fs::write(tmp.path().join("root-check"), b"").is_ok() {
+            return Ok(());
+        }
         let result = file_appender(tmp.path());
         fs::set_permissions(tmp.path(), fs::Permissions::from_mode(0o700))?;
         assert!(result.is_err());

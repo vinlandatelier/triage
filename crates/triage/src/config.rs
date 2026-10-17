@@ -355,16 +355,19 @@ fn create_dir(path: &Path) -> Result<()> {
 // An existing read-only dir passes create_dir, so probe with a real write.
 // The pid keeps concurrent starts apart; `create_new` refuses a planted symlink.
 fn check_writable(dir: &Path) -> Result<()> {
+    probe_writable(dir).map_err(|source| Error::NotWritable {
+        path: dir.to_path_buf(),
+        source,
+    })
+}
+
+pub(crate) fn probe_writable(dir: &Path) -> io::Result<()> {
     let probe = dir.join(format!(".triage-write-check-{}", std::process::id()));
     OpenOptions::new()
         .write(true)
         .create_new(true)
         .open(&probe)
         .and_then(|_| fs::remove_file(&probe))
-        .map_err(|source| Error::NotWritable {
-            path: dir.to_path_buf(),
-            source,
-        })
 }
 
 #[cfg(test)]

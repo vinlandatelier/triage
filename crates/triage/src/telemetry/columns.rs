@@ -205,7 +205,7 @@ impl Visit for Fields {
 }
 
 /// Also escapes control characters, so field values cannot move the cursor or recolour a TTY.
-fn one_line(value: impl Display) -> String {
+pub(crate) fn one_line(value: impl Display) -> String {
     let raw = value.to_string();
     let mut out = String::with_capacity(raw.len());
     let mut chars = raw.chars().peekable();

@@ -1,3 +1,4 @@
+mod db;
 mod health;
 mod helpers;
 mod request_tracing;

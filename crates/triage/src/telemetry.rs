@@ -27,6 +27,8 @@ use crate::config::{self, Config, LogFormat, Paths};
 mod columns;
 mod otel;
 
+pub(crate) use columns::one_line;
+
 const MAX_LOG_FILES: usize = 7;
 const FILE_PREFIX: &str = "triage";
 const FILE_SUFFIX: &str = "jsonl";

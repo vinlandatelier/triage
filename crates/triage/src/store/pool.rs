@@ -36,7 +36,34 @@ pub async fn open(paths: &Paths) -> Result<Store> {
     open_with(&paths.db_file(), &MIGRATOR).await
 }
 
+/// Like [`open`], but returns how many migrations it applied.
+pub async fn migrate(paths: &Paths) -> Result<usize> {
+    Ok(open_counted(&paths.db_file(), &MIGRATOR).await?.1)
+}
+
+/// One connection opened with `SQLITE_OPEN_READONLY`, so writes fail inside SQLite itself.
+/// It never creates the database file or migrates it.
+pub async fn open_read_only(paths: &Paths) -> Result<SqlitePool> {
+    let path = paths.db_file();
+    if !path.is_file() {
+        return Err(Error::Missing(path));
+    }
+    let options = SqliteConnectOptions::new()
+        .filename(&path)
+        .read_only(true)
+        .busy_timeout(BUSY_TIMEOUT);
+    SqlitePoolOptions::new()
+        .max_connections(1)
+        .connect_with(options)
+        .await
+        .map_err(|source| Error::Open { path, source })
+}
+
 async fn open_with(path: &Path, migrator: &Migrator) -> Result<Store> {
+    Ok(open_counted(path, migrator).await?.0)
+}
+
+async fn open_counted(path: &Path, migrator: &Migrator) -> Result<(Store, usize)> {
     let options = SqliteConnectOptions::new()
         .filename(path)
         .create_if_missing(true)
@@ -55,17 +82,37 @@ async fn open_with(path: &Path, migrator: &Migrator) -> Result<Store> {
         .connect_with(options.clone())
         .await
         .map_err(open_err)?;
+    let before = applied(&write).await?;
     migrator
         .run(&write)
         .await
         .map_err(|err| migrate_error(migrator, err))?;
+    let count = applied(&write).await? - before;
     let readers = thread::available_parallelism().map_or(4, NonZeroUsize::get);
     let read = SqlitePoolOptions::new()
         .max_connections(u32::try_from(readers).unwrap_or(u32::MAX))
         .connect_with(options.pragma("query_only", "ON"))
         .await
         .map_err(open_err)?;
-    Ok(Store { read, write })
+    Ok((Store { read, write }, count))
+}
+
+async fn applied(pool: &SqlitePool) -> Result<usize> {
+    // The table does not exist until the first migration run creates it.
+    let exists: bool = sqlx::query_scalar(
+        "SELECT EXISTS (SELECT 1 FROM sqlite_schema WHERE name = '_sqlx_migrations')",
+    )
+    .fetch_one(pool)
+    .await
+    .map_err(Error::Count)?;
+    if !exists {
+        return Ok(0);
+    }
+    let count: i64 = sqlx::query_scalar("SELECT count(*) FROM _sqlx_migrations")
+        .fetch_one(pool)
+        .await
+        .map_err(Error::Count)?;
+    Ok(usize::try_from(count).unwrap_or(0))
 }
 
 fn migrate_error(migrator: &Migrator, err: MigrateError) -> Error {
@@ -137,6 +184,49 @@ mod tests {
             );
             assert_eq!((sync, fks, temp_store), (1, 1, 2), "NORMAL, ON, MEMORY");
         }
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn counts_only_newly_applied_migrations() -> TestResult {
+        let tmp = tempfile::tempdir()?;
+        let db = tmp.path().join("t.db");
+        let migrations = migrator(
+            &tmp.path().join("m"),
+            &[
+                ("1_first.sql", "CREATE TABLE first (x INTEGER) STRICT;"),
+                ("2_second.sql", "CREATE TABLE second (x INTEGER) STRICT;"),
+            ],
+        )
+        .await?;
+        assert_eq!(open_counted(&db, &migrations).await?.1, 2);
+        assert_eq!(open_counted(&db, &migrations).await?.1, 0);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn read_only_pool_rejects_writes_and_missing_files() -> TestResult {
+        let tmp = tempfile::tempdir()?;
+        let paths = Paths {
+            data: tmp.path().into(),
+            logs: tmp.path().join("logs"),
+            config: tmp.path().join("config"),
+        };
+        let Err(err) = open_read_only(&paths).await else {
+            return Err("a missing file must not open read-only".into());
+        };
+        assert!(matches!(err, Error::Missing(_)), "{err:?}");
+        assert!(!paths.db_file().exists());
+
+        drop(open(&paths).await?);
+        let pool = open_read_only(&paths).await?;
+        let Err(err) = sqlx::query("DELETE FROM _sqlx_migrations")
+            .execute(&pool)
+            .await
+        else {
+            return Err("a read-only write must fail".into());
+        };
+        assert!(err.to_string().contains("readonly database"), "{err}");
         Ok(())
     }
 

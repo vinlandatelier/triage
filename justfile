@@ -137,7 +137,7 @@ setup:
     bun install --frozen-lockfile && prek install --install-hooks
 
 # Run every quality gate.
-check: fmt-check clippy check-layout deny machete db-prepare-check test check-web
+check: fmt-check clippy check-layout deny machete db-prepare-check test check-web gen-api-check
 
 fmt-check:
     cargo fmt --all --check
@@ -168,6 +168,21 @@ check-web:
 # Build the web UI into web/dist.
 build-web:
     bun run build
+
+# Regenerate web/src/api, the typed client, from crates/triage/openapi.json.
+gen-api:
+    bun run gen:api
+
+# Fail when web/src/api no longer matches crates/triage/openapi.json. Staged output passes.
+gen-api-check: gen-api
+    #!/usr/bin/env bash
+    set -euo pipefail
+    untracked="$(git ls-files --others --exclude-standard -- web/src/api)"
+    if ! git diff --quiet -- web/src/api || [ -n "$untracked" ]; then
+        git status --short -- web/src/api
+        echo "web/src/api is stale: run 'just gen-api' and commit the result"
+        exit 1
+    fi
 
 # Regenerate crates/triage/schema.sql from a freshly migrated database.
 db-schema:

@@ -1,8 +1,9 @@
-import { createRootRoute, Link, Outlet } from "@tanstack/react-router";
+import type { QueryClient } from "@tanstack/react-query";
+import { createRootRouteWithContext, Link, Outlet } from "@tanstack/react-router";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { NotFound, RouteError } from "@/fallbacks";
 
-export const Route = createRootRoute({
+export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()({
   component: RootLayout,
   notFoundComponent: NotFound,
   errorComponent: RouteError,

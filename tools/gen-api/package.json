@@ -1,0 +1,12 @@
+{
+  "name": "@triage/gen-api",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "gen": "openapi-ts && bun nocheck.ts"
+  },
+  "devDependencies": {
+    "@hey-api/openapi-ts": "0.99.0",
+    "typescript": "6.0.3"
+  }
+}

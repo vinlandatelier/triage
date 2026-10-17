@@ -89,7 +89,6 @@ jobs:
       github.event_name == 'pull_request_review_comment' &&
       github.event.comment.in_reply_to_id &&
       github.event.comment.user.type != 'Bot' &&
-      contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association) &&
       !contains(github.event.comment.body, '@vinland-ai') &&
       !contains(github.event.comment.body, '/vinland-ai') &&
       !contains(github.event.comment.body, '/vai')
@@ -105,9 +104,15 @@ jobs:
         env:
           GH_TOKEN: ${{ steps.app.outputs.token }}
           ROOT: ${{ github.event.comment.in_reply_to_id }}
+          WHO: ${{ github.event.comment.user.login }}
+        # Write access, not author_association: members with private org membership read as
+        # CONTRIBUTOR there.
         run: |
-          author=$(gh api "repos/${{ github.repository }}/pulls/comments/$ROOT" --jq .user.login)
-          echo "ours=$([ "$author" = 'vinland-ai[bot]' ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
+          author=$(gh api "repos/$GITHUB_REPOSITORY/pulls/comments/$ROOT" --jq .user.login)
+          perm=$(gh api "repos/$GITHUB_REPOSITORY/collaborators/$WHO/permission" --jq .permission || echo none)
+          ours=false
+          if [ "$author" = 'vinland-ai[bot]' ] && [[ "$perm" =~ ^(admin|maintain|write)$ ]]; then ours=true; fi
+          echo "ours=$ours" >> "$GITHUB_OUTPUT"
 
       # 👀 on the triggering comment, so the person knows it was picked up. Review bodies
       # have no reactions API, so a trigger there gets none.

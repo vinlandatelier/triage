@@ -70,8 +70,9 @@ pub fn run(cli: Cli) -> config::Result<()> {
     }
     let config = Config::load()?;
     let paths = Paths::resolve(cli.data_dir)?;
-    if let Some(Command::Config(ConfigCommand::Show)) = cli.command {
-        show(&config, &paths);
+    match cli.command {
+        Some(Command::Config(ConfigCommand::Show)) => show(&config, &paths),
+        Some(Command::Completions { .. }) | None => {}
     }
     Ok(())
 }

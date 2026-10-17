@@ -35,7 +35,7 @@ triage/
   web/
     package.json vite.config.ts biome.json tsconfig.json env.ts index.html prek.toml
     src/
-      main.tsx routeTree.gen.ts
+      main.tsx routeTree.gen.ts error.ts
       routes/            file-based
       api/               hey-api output, never edited
       components/ui/     shadcn vendored
@@ -126,6 +126,10 @@ Handlers return `crate::error::Result<T>` with `AppError`: `NotFound(String)` 40
 ## Contract
 
 Routes register through `utoipa_axum::router::OpenApiRouter` in `http::router::routes`, each handler annotated with `#[utoipa::path]` and an explicit `operation_id` of the form `<feature>_<verb>` (`health_get`), so hey-api names read `healthGetOptions`. `http::api_doc()` splits that router and returns the spec: OpenAPI 3.1, title `Triage`, version from Cargo, server `http://127.0.0.1:7311`. It registers `Problem` and `FieldError` as schemas and a `Problem` response (`application/problem+json`), and gives every operation that response as its `default`. `problem_details` implements only utoipa 5's `ToSchema`, so `error::ProblemSchema` describes the body instead and must change when `Problem` does. The daemon serves the spec at `GET /api/openapi.json`, outside the spec. Debug builds also serve Scalar at `GET /api/scalar` (`utoipa-scalar`, `#[cfg(debug_assertions)]` in `http::router`), with the spec inlined; release builds leave that path to the `/api` fallback, a `NotFound` problem. `crates/triage/openapi.json` is the committed copy, written by `src/bin/gen_openapi.rs` through `http::api_json` (keys sorted via `serde_json::Value`, trailing newline); the spec is a runtime value, so a bin builds it, not `build.rs`. `just openapi` regenerates it; `openapi::openapi_spec_is_current` fails with a diff when it is stale, and prek runs that test through `just openapi-check` when anything under `crates/triage/src/`, `openapi.json`, either `Cargo.toml`, or `Cargo.lock` changes. `openapi::problem_schema_matches_the_body` fails when `ProblemSchema` and a rendered problem disagree on keys. The package sets `default-run = "triage"` so `cargo run` still means the daemon.
+
+## Web
+
+`web/` is a Vite SPA. Routing is TanStack Router with file-based routes in `web/src/routes/`. `@tanstack/router-plugin/vite` runs with `autoCodeSplitting` and sits before `react()` in `vite.config.ts`, after `ValidateEnv()`. It writes `web/src/routeTree.gen.ts` on every `vite dev` and `vite build`; the file is committed, never edited, and excluded from Biome (and from knip once it lands). `main.tsx` builds the router and registers its type. `routes/__root.tsx` is the shell: a header, `<Outlet/>`, a `notFoundComponent` for unknown paths, and an `errorComponent` that shows the message and the request id when there is one. `web/src/error.ts::describeError` reads a problem+json body (`detail`, then `title`, request id from `instance`) or an `Error` (`message`, `requestId`).
 
 ## Observability
 

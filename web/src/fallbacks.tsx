@@ -12,14 +12,12 @@ export function NotFound() {
   );
 }
 
-export function RouteError({ error, reset }: ErrorComponentProps) {
+export function RouteError({ error }: ErrorComponentProps) {
   const router = useRouter();
   const { message, requestId } = describeError(error);
-  // reset() alone re-renders the failed match, which throws again after a loader error.
-  const retry = () => {
-    reset();
-    void router.invalidate();
-  };
+  // invalidate() reruns the failed loader and clears the error; reset() alone would re-render
+  // the failed match, which throws again.
+  const retry = () => void router.invalidate();
   return (
     <section role="alert" className="mx-auto flex max-w-md flex-col gap-2">
       <h1 className="text-xl font-semibold">Something went wrong</h1>

@@ -1,3 +1,4 @@
 .eng/
 .envrc
 CLAUDE.local.md
+/target/

@@ -21,9 +21,11 @@ setup:
 # Run every quality gate.
 check: fmt-check clippy check-layout deny machete db-prepare-check test check-web gen-api-check
 
+# Check Rust formatting.
 fmt-check:
     cargo fmt --all --check
 
+# Lint Rust with warnings denied.
 clippy:
     cargo clippy --workspace --all-targets --locked -- -D warnings
 
@@ -31,15 +33,19 @@ clippy:
 check-layout:
     scripts/check-layout.sh
 
+# Check licenses, advisories, bans, and sources.
 deny:
     cargo deny check
 
+# Find unused Rust dependencies.
 machete:
     cargo machete
 
+# Run the Rust tests.
 test:
     cargo nextest run --workspace --locked --no-tests=pass
 
+# Lint, typecheck, and test the web UI.
 check-web:
     bun run lint
     bun run typecheck

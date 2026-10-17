@@ -45,11 +45,8 @@ it behind. Restack them:
    - generated or lock files: take either side, regenerate with `just`
    - otherwise keep what each PR's issue says that PR must do
 3. If a resolution needs a product decision, or both intents might not survive,
-   run `gh stack rebase --abort` and comment on that PR mentioning the
-   authors of the conflicting changes: one line per conflict with file, options, and a recommendation.
-
-   run `gh stack rebase --abort` and ask the maintainer on that PR, as in
-   "Asking the maintainer" below.
+   run `gh stack rebase --abort` and ask the authors of the conflicting changes
+   on that PR, as in "Asking for a decision" below.
 4. Run the checks on each branch the rebase changed, then `gh stack push`.
 
 Never merge one branch into another to catch up (`git merge`, `git pull`): a
@@ -89,15 +86,16 @@ for anything a recording cannot show. When it helps, without being asked:
 A PR labelled `request-ai-review` gets a review from the assistant on the label
 and on every later push, following `.claude/skills/pr-review/SKILL.md`. Pushes
 that only restack are skipped. Agents fixing review comments never act on a
-`❓` comment; those wait for the maintainer.
+`❓` comment; those wait for the person asked.
 
-## Asking the maintainer
+## Asking for a decision
 
-Any comment that needs the maintainer's decision uses this shape, scannable on
-a phone in five seconds:
+Any comment that needs a person's decision mentions whoever has the most
+context (see Conventions) and uses this shape, scannable on a phone in five
+seconds:
 
 ```
-@<maintainer> **your call:** <the question, one line>
+@<person> **your call:** <the question, one line>
 
 `file:line` · <what is wrong or undecided, one line>
 
@@ -109,7 +107,7 @@ Reply `A` or `B` in this thread.
 
 Context is one line at most, each option one line, exactly one `(rec)`. No prose
 paragraphs. Post it as an inline review comment on the line it is about, one
-thread per decision, so the maintainer replies in the thread. The assistant
+thread per decision, so the person replies in the thread. The assistant
 answers any reply in a thread it started, no mention needed. Top-level only
 when no diff line fits.
 

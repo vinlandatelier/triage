@@ -42,6 +42,22 @@ jobs:
           app-id: ${{ secrets.ASSISTANT_APP_ID }}
           private-key: ${{ secrets.ASSISTANT_APP_PRIVATE_KEY }}
 
+      # 👀 on the triggering comment, so the person knows it was picked up. Review bodies
+      # have no reactions API, so a trigger there gets none.
+      - if: steps.trigger.outputs.phrase
+        name: acknowledge
+        env:
+          GH_TOKEN: ${{ steps.app.outputs.token }}
+          EVENT: ${{ github.event_name }}
+          ID: ${{ github.event.comment.id }}
+        run: |
+          case "$EVENT" in
+            issue_comment) kind=issues ;;
+            pull_request_review_comment) kind=pulls ;;
+            *) exit 0 ;;
+          esac
+          gh api "repos/$GITHUB_REPOSITORY/$kind/comments/$ID/reactions" -f content=eyes --silent || true
+
       - if: steps.trigger.outputs.phrase
         uses: actions/checkout@v4
         with:
@@ -93,6 +109,22 @@ jobs:
           author=$(gh api "repos/${{ github.repository }}/pulls/comments/$ROOT" --jq .user.login)
           echo "ours=$([ "$author" = 'vinland-ai[bot]' ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
 
+      # 👀 on the triggering comment, so the person knows it was picked up. Review bodies
+      # have no reactions API, so a trigger there gets none.
+      - if: steps.root.outputs.ours == 'true'
+        name: acknowledge
+        env:
+          GH_TOKEN: ${{ steps.app.outputs.token }}
+          EVENT: ${{ github.event_name }}
+          ID: ${{ github.event.comment.id }}
+        run: |
+          case "$EVENT" in
+            issue_comment) kind=issues ;;
+            pull_request_review_comment) kind=pulls ;;
+            *) exit 0 ;;
+          esac
+          gh api "repos/$GITHUB_REPOSITORY/$kind/comments/$ID/reactions" -f content=eyes --silent || true
+
       - if: steps.root.outputs.ours == 'true'
         uses: actions/checkout@v4
         with:
@@ -114,7 +146,7 @@ jobs:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           github_token: ${{ steps.app.outputs.token }}
           prompt: |
-            The maintainer replied in review thread ${{ github.event.comment.in_reply_to_id }} on PR #${{ github.event.pull_request.number }}, which you started.
+            @${{ github.event.comment.user.login }} replied in review thread ${{ github.event.comment.in_reply_to_id }} on PR #${{ github.event.pull_request.number }}, which you started.
             Their reply (comment ${{ github.event.comment.id }}): read it with `gh api repos/${{ github.repository }}/pulls/comments/${{ github.event.comment.id }}`, and read the whole thread for context.
             If it answers a decision (`A`, `B`, or free text), apply it on branch `${{ github.event.pull_request.head.ref }}`, run the checks, push, restack per CLAUDE.md, then reply in the thread with one line saying what changed and resolve the thread.
             If it asks a question or pushes back, answer in the thread in the review assistant reply style.

@@ -53,9 +53,9 @@ to prove.
 - 🟡 clarity or maintainability
 - ⚪ `nit:` style or taste
 
-## 5. Ask the maintainer instead of guessing
+## 5. Ask instead of guessing
 
-Err towards asking. A finding becomes a decision for the maintainer when any of
+Err towards asking. A finding becomes a decision for a person when any of
 these holds:
 
 - The fix touches security, auth, secrets, data deletion, migrations, or
@@ -64,8 +64,8 @@ these holds:
 - The issue or spec is vague or silent on the behaviour in question.
 - Two reasonable fixes lead to different product behaviour.
 
-Write it as an inline comment starting with `❓`, in the "Asking the maintainer"
-format from `CLAUDE.md`.
+Write it as an inline comment starting with `❓`, in the "Asking for a decision"
+format from `CLAUDE.md`, mentioning the PR author unless someone else has more context.
 Agents that act on review comments never act on a `❓` comment.
 
 ## 6. Post

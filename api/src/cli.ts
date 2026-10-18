@@ -3,6 +3,8 @@ import tab from "@bomb.sh/tab/citty";
 import { type ArgsDef, defineCommand, parseArgs, renderUsage, runCommand, runMain } from "citty";
 import packageJson from "../package.json" with { type: "json" };
 import { type Config, configEntries, loadConfig, pathEnv } from "./config";
+import { probe } from "./http/probe";
+import { type Lock, lockDataDir, serve, shutdownSignals } from "./http/serve";
 import { createPaths, dbFile, type Paths, resolvePaths } from "./paths";
 import { openReadOnly, openStore } from "./store/open";
 import { cellText, type Rows, rowsJson, runQuery } from "./store/query";
@@ -101,6 +103,37 @@ async function rootCommand(dataDir: string | undefined) {
     },
     args: globalArgs,
     subCommands: {
+      serve: defineCommand({
+        meta: {
+          name: "serve",
+          description: "Run the daemon in the foreground until SIGINT or SIGTERM",
+        },
+        args: globalArgs,
+        async run() {
+          await serveCommand(dataDir);
+        },
+      }),
+      status: defineCommand({
+        meta: {
+          name: "status",
+          description: "Report whether the daemon is running; exits 3 when not",
+        },
+        args: globalArgs,
+        async run() {
+          await withPaths(dataDir, async (_paths, config) => {
+            const health = await probe(config.port);
+            if (health === undefined) {
+              await emit("not running\n");
+              // LSB `status` code for "not running", so scripts can tell it from a failed check.
+              process.exitCode = 3;
+              return;
+            }
+            await emit(
+              `running v${health.version} on 127.0.0.1:${config.port}, up ${uptime(health.uptime_s)}\n`,
+            );
+          });
+        },
+      }),
       config: defineCommand({
         meta: { name: "config", description: "Inspect the resolved configuration" },
         args: globalArgs,
@@ -250,11 +283,13 @@ async function rootCommand(dataDir: string | undefined) {
 /** Config, dirs, and telemetry for every command but `config show` and `completions`. */
 async function start(
   dataDir: string | undefined,
+  beforeTelemetry?: (paths: Paths) => void,
 ): Promise<{ readonly config: Config; readonly paths: Paths; readonly telemetry: Telemetry }> {
   const config = loadConfig();
   const env = pathEnv();
   const paths = resolvePaths(dataDir, env);
   createPaths(paths);
+  beforeTelemetry?.(paths);
   const telemetry = await initTelemetry(config, paths);
   // Resolution ran before the logger existed, so the override line is logged here.
   if (dataDir !== undefined && env.dataDir !== undefined) {
@@ -267,14 +302,57 @@ async function start(
 /** Runs `fn` with dirs and telemetry set up, and closes telemetry after it. */
 async function withPaths(
   dataDir: string | undefined,
-  fn: (paths: Paths) => Promise<void>,
+  fn: (paths: Paths, config: Config) => Promise<void>,
 ): Promise<void> {
-  const { paths, telemetry } = await start(dataDir);
+  const { config, paths, telemetry } = await start(dataDir);
   try {
-    await fn(paths);
+    await fn(paths, config);
   } finally {
     await telemetry.close();
   }
+}
+
+async function serveCommand(dataDir: string | undefined): Promise<void> {
+  const signals = shutdownSignals();
+  let lock: Lock | undefined;
+  let cut = false;
+  try {
+    // The lock comes before telemetry, so a second instance never writes into the running
+    // one's log file.
+    const { config, paths, telemetry } = await start(dataDir, (paths) => {
+      lock = lockDataDir(paths);
+    });
+    try {
+      cut = (await serve(config, paths, signals)) === "cut";
+    } catch (err) {
+      // Logged so it reaches the JSONL file; the log already prints it on stderr, so main stays quiet.
+      log.error("serve failed", { error: err });
+      process.exitCode = 1;
+    } finally {
+      await telemetry.close();
+    }
+  } finally {
+    signals.dispose();
+    lock?.release();
+  }
+  if (cut) {
+    // Handlers still running would keep the process alive.
+    process.exit();
+  }
+}
+
+/** The two largest units: `59s`, `59m`, `3h12m`, `1d2h`. */
+export function uptime(seconds: number): string {
+  const days = Math.floor(seconds / 86_400);
+  const hours = Math.floor(seconds / 3600) % 24;
+  const mins = Math.floor(seconds / 60) % 60;
+  if (days > 0) {
+    return `${days}d${hours}h`;
+  }
+  if (hours > 0) {
+    return `${hours}h${mins}m`;
+  }
+  return mins > 0 ? `${mins}m` : `${seconds}s`;
 }
 
 export function configTable(config: Config, paths: Paths): string {

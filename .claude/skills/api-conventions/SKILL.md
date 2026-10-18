@@ -52,7 +52,7 @@ The worked example arrives with `api/src/features/hello/` in a later slice. Unti
 ## Security
 
 - `Bun.serve({ hostname: "127.0.0.1" })` always. Why: Bun binds `0.0.0.0` by default, which exposes the daemon to the LAN.
-- Hono `bodyLimit` per route class, with a matching `maxRequestBodySize` in `Bun.serve`. Why: an unbounded body is a denial of service.
+- Hono `bodyLimit` caps bodies; `Bun.serve`'s `maxRequestBodySize` sits above it as a backstop. Why: an unbounded body is a denial of service, and Bun's own 413 has no problem body.
 - No `eval`, `new Function`, or `node:vm` on any input. Why: remote code execution.
 - Never build a file path from user input. Why: path traversal.
 - Commit `bun.lock`, install with `--frozen-lockfile` in CI, keep `bun audit --audit-level=high` green, keep `minimumReleaseAge` and exact versions in `bunfig.toml`, add no `trustedDependencies` without review. Why: bun does not freeze the lockfile in CI by default.

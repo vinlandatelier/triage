@@ -10,7 +10,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { CliError, configTable, rowsTable, schemaDrift, writeOut } from "./cli";
+import { CliError, configTable, rowsTable, schemaDrift, uptime, writeOut } from "./cli";
 import { loadConfig } from "./config";
 
 const MAIN = join(import.meta.dir, "main.ts");
@@ -329,4 +329,20 @@ test("schemaDrift names the first differing line", () => {
   expect(schemaDrift("a\n", "a\n\nb\n")).toBe(
     "schema drift at line 2\n  schema.sql  (end)\n  database    (blank line)\n",
   );
+});
+
+test("uptime keeps the two largest units", () => {
+  const cases: [number, string][] = [
+    [0, "0s"],
+    [59, "59s"],
+    [60, "1m"],
+    [3599, "59m"],
+    [3600, "1h0m"],
+    [3 * 3600 + 12 * 60 + 5, "3h12m"],
+    [86_400, "1d0h"],
+    [86_400 + 7200 + 60, "1d2h"],
+  ];
+  for (const [seconds, want] of cases) {
+    expect(uptime(seconds)).toBe(want);
+  }
 });

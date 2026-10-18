@@ -30,11 +30,14 @@ case "$file" in
         warn rustfmt
     fi
     ;;
-"$root"/web/*.ts | "$root"/web/*.tsx | "$root"/web/*.js | "$root"/web/*.jsx | "$root"/web/*.json | "$root"/web/*.css)
+"$root"/web/*.ts | "$root"/web/*.tsx | "$root"/web/*.js | "$root"/web/*.jsx | "$root"/web/*.json | "$root"/web/*.css | \
+    "$root"/api/*.ts | "$root"/api/*.js | "$root"/api/*.json)
+    pkg="${file#"$root"/}"
+    pkg="$root/${pkg%%/*}"
     # The local binary, not bunx, which would download biome when it is missing.
-    biome="$root/web/node_modules/.bin/biome"
+    biome="$pkg/node_modules/.bin/biome"
     if [ -x "$biome" ]; then
-        (cd "$root/web" && "$biome" check --write --no-errors-on-unmatched --files-ignore-unknown=true "$file") >/dev/null 2>&1
+        (cd "$pkg" && "$biome" check --write --no-errors-on-unmatched --files-ignore-unknown=true "$file") >/dev/null 2>&1
     else
         warn biome
     fi

@@ -1,0 +1,5 @@
+[[repos]]
+repo = "local"
+hooks = [
+  { id = "biome", name = "biome check", language = "system", entry = "bunx biome check --write --no-errors-on-unmatched --files-ignore-unknown=true", types_or = ["javascript", "ts", "json"] },
+]

@@ -1,0 +1,4 @@
+[install]
+exact = true
+# Seconds. A malicious publish is usually yanked within hours; Renovate runs weekly.
+minimumReleaseAge = 259200

@@ -1,15 +1,11 @@
 import { useMutation, useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
 import { type FormEvent, useId, useState } from "react";
-import {
-  helloCreateMutation,
-  helloListOptions,
-  helloListQueryKey,
-} from "@/api/@tanstack/react-query.gen";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { describeError, ProblemError } from "@/error";
 import { NAME_ERROR, parseName } from "./name";
+import { helloCreateOptions, helloListKey, helloListOptions } from "./queries";
 
 export function HelloPage() {
   return (
@@ -28,12 +24,12 @@ function HelloForm() {
   const [name, setName] = useState("");
   const [localError, setLocalError] = useState<string>();
   const create = useMutation({
-    ...helloCreateMutation(),
+    ...helloCreateOptions(),
     // Like queries: a network failure or a 5xx goes to the route error component.
     throwOnError: (error) => !(error instanceof ProblemError) || error.status >= 500,
     onSuccess: () => {
       setName("");
-      return queryClient.invalidateQueries({ queryKey: helloListQueryKey() });
+      return queryClient.invalidateQueries({ queryKey: helloListKey });
     },
   });
 
@@ -45,7 +41,7 @@ function HelloForm() {
       return;
     }
     setLocalError(undefined);
-    create.mutate({ body: { name: parsed } });
+    create.mutate(parsed);
   };
 
   const error = localError ?? (create.error ? serverError(create.error) : undefined);

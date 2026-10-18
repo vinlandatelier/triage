@@ -1,4 +1,4 @@
-import type { FieldError, Problem } from "@/api";
+import type { FieldError, Problem } from "@triage/api";
 
 type Described = { message: string; requestId?: string };
 

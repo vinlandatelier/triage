@@ -6,7 +6,7 @@ subprocess with the user's own login. No API keys.
 
 One crate, `crates/triage`, builds the `triage` binary. It serves the API and,
 in release, the embedded UI at `localhost:7311`. `web/` is a Vite SPA that talks
-to the API through a client generated from `crates/triage/openapi.json`.
+to the API through `hc<AppType>`, typed from the routes in `api/`.
 `docs/ARCHITECTURE.md` holds every rule and invariant; read it before a change.
 
 ## Commands
@@ -17,17 +17,19 @@ Fresh clone: `just setup && just check`. CI runs the same recipes.
 |---|---|
 | `just setup` | first clone, or after a dev tool changes; safe to re-run |
 | `just dev` | serve the app at `localhost:7311` (Vite) with the daemon on 7312 |
-| `just check` | before every push; every gate below except `e2e` |
+| `just check` | before every push; `check-api`, `deny`, `check-layout`, `db-schema-check`, `check-web`; no cargo |
 | `just fix` | apply `cargo fmt` and Biome fixes |
-| `just fmt-check` / `clippy` / `check-layout` / `test` | one Rust gate on its own; `test` is nextest |
-| `just deny` / `machete` | after adding or removing a Rust dependency |
+| `just check-layout` | the layout rules on `api/src/` |
+| `just fmt-check` / `clippy` / `test` | one Rust gate on its own, outside `just check`; `test` is nextest |
+| `just check-api` | every api gate: biome, tsc, bun test, knip |
+| `just deny` | after adding or removing a dependency: bun audit and the licence check |
 | `just check-web` | every web gate: lint, typecheck, doctor, knip, test |
 | `just e2e` | Playwright against a fresh release build, after a UI flow changes |
 | `just build-web` / `build` | `web/dist/`, then the release binary with it embedded |
 | `just openapi` / `openapi-check` | after a route or response type changes |
-| `just gen-api` / `gen-api-check` | after `openapi.json` changes, regenerate `web/src/api/` |
 | `just db-prepare` / `db-prepare-check` | after a query or migration changes, regenerate `.sqlx/` |
-| `just db-schema` / `db-schema-check` | after a migration, regenerate `schema.sql` (run `db-prepare` first) |
+| `just db-generate` | after a `model.ts` change, write `api/migrations/`; then `db-schema` |
+| `just db-schema` / `db-schema-check` | after a migration, regenerate `api/schema.sql` |
 | `just skills-update` | pull upstream changes into vendored skills; never commits |
 | `just loop <feature>` | the maintainer's private feature loop; `.eng/` is gitignored |
 | `just` (`default`) | list recipes |
@@ -35,7 +37,6 @@ Fresh clone: `just setup && just check`. CI runs the same recipes.
 | `bun run lint` / `fix` | Biome check / Biome write |
 | `bun run typecheck` / `doctor` / `knip` / `test` | tsc, react-doctor, unused code, Vitest once |
 | `bun run e2e` | Playwright only; needs `target/release/triage`, so prefer `just e2e` |
-| `bun run gen:api` | same as `just gen-api`; runs `gen` in `tools/gen-api` |
 
 Root scripts forward to the same names in `web/package.json`.
 
@@ -48,9 +49,8 @@ crates/triage/migrations/   forward-only SQL
 crates/triage/tests/api/    integration tests, one file per feature
 web/src/routes/             file-based routes, thin: loader + feature component
 web/src/features/<name>/    feature UI and its tests
-web/src/api/                generated client, never edited
+web/src/api-client.ts       the hc<AppType> client and call()
 web/e2e/                    Playwright specs
-tools/gen-api/              hey-api generator (TypeScript 6)
 scripts/                    check-layout.sh claude-format.sh
 .claude/skills/             agent skills, see SOURCES.md
 ```
@@ -61,19 +61,20 @@ Copy `features/hello/` on both sides for a new feature.
 
 - Logs: `triage logs path` prints today's JSONL file (`~/Library/Logs/triage/` on macOS). Every line carries `request_id`.
 - Data: `triage db sql "<query>"` (read-only, `--json` for rows as objects). `triage db schema` prints the live schema.
-- Schema: `crates/triage/schema.sql`. Read it instead of replaying migrations.
-- API: `crates/triage/openapi.json`, or Scalar at `/api/scalar` in a debug build.
+- Schema: `api/schema.sql`. Read it instead of replaying migrations.
+- API: `GET /api/openapi.json`, or Scalar at `/api/scalar` when running from source.
 - Config: `triage config show` prints every `TRIAGE_*` var and path.
 - Rules, invariants, and why: `docs/ARCHITECTURE.md`.
 
 ## Rules
 
 - Rust in `crates/triage`: follow the `rust-service-conventions` skill.
+- TypeScript in `api/`: follow the `api-conventions` skill.
 - TypeScript in `web/`: follow the `web-conventions` skill.
 - `docs/ARCHITECTURE.md` wins over any skill. Update it in the PR that adds a module, invariant, or dependency.
 - Tooling changes update `just setup` in the same PR.
 - No dependency outside the allowlist in `docs/ARCHITECTURE.md` without asking.
-- Never hand-edit `web/src/api/`, `routeTree.gen.ts`, `openapi.json`, `schema.sql`, or `.sqlx/`.
+- Never hand-edit `routeTree.gen.ts`, `api/types/`, `schema.sql`, or `.sqlx/`.
 
 ## Simplicity
 

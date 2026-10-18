@@ -90,8 +90,6 @@ ensure toolchain toolchain_present "rustup toolchain install"
 ensure cargo-binstall "has cargo-binstall" \
     "$(brew_or cargo-binstall 'curl -L --proto =https --tlsv1.2 -sSf https://raw.githubusercontent.com/cargo-bins/cargo-binstall/main/install-from-binstall-release.sh | bash')"
 ensure cargo-nextest "has cargo-nextest" "cargo_tool cargo-nextest"
-ensure cargo-deny "has cargo-deny" "cargo_tool cargo-deny"
-ensure cargo-machete "has cargo-machete" "cargo_tool cargo-machete"
 ensure sqlx-cli "has sqlx" "cargo_tool sqlx-cli --no-default-features --features sqlite,rustls"
 ensure bacon "has bacon" "$(brew_or bacon 'cargo_tool bacon')"
 ensure prek "has prek" \
@@ -128,6 +126,8 @@ if [ "$failures" -gt 0 ]; then
 fi
 
 bun install --frozen-lockfile
+# web imports the api's route types from api/types/, which is gitignored; editors need it before any typecheck.
+(cd api && bun run types)
 # The root has no node_modules/.bin under the isolated linker, so bunx would fetch the latest playwright.
 (cd web && bunx playwright install chromium)
 prek install --install-hooks

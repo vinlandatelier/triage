@@ -19,7 +19,15 @@ setup:
     @TRIAGE_USER_PATH={{ quote(user_path) }} ./scripts/setup.sh
 
 # Run every quality gate.
-check: fmt-check clippy check-layout deny machete db-prepare-check test check-web gen-api-check
+check: check-api deny check-layout db-schema-check check-web
+
+# Lint, typecheck, and test the api package.
+[working-directory('api')]
+check-api:
+    bun run lint
+    bun run typecheck
+    bun run test
+    bun run knip
 
 # Check Rust formatting.
 fmt-check:
@@ -33,13 +41,11 @@ clippy:
 check-layout:
     scripts/check-layout.sh
 
-# Check licenses, advisories, bans, and sources.
+# Fail on a high advisory or a licence outside docs/ARCHITECTURE.md in api production dependencies.
+[working-directory('api')]
 deny:
-    cargo deny check
-
-# Find unused Rust dependencies.
-machete:
-    cargo machete
+    bun audit --prod --audit-level=high
+    bun run licenses --production --excludePrivatePackages --onlyAllow 'MIT;Apache-2.0;BSD-2-Clause;BSD-3-Clause;ISC;Unicode-3.0;MPL-2.0;Zlib' --summary
 
 # Run the Rust tests.
 test:
@@ -65,28 +71,17 @@ build-web:
 build: build-web
     cargo build --release --locked
 
-# Regenerate web/src/api, the typed client, from crates/triage/openapi.json.
-gen-api:
-    bun run gen:api
+# Generate api/migrations from the feature schemas in api/src/features/*/model.ts, every table STRICT.
+db-generate *args:
+    scripts/db-generate.sh {{args}}
 
-# Fail when web/src/api no longer matches crates/triage/openapi.json. Staged output passes.
-gen-api-check: gen-api
-    #!/usr/bin/env bash
-    set -euo pipefail
-    untracked="$(git ls-files --others --exclude-standard -- web/src/api)"
-    if ! git diff --quiet -- web/src/api || [ -n "$untracked" ]; then
-        git status --short -- web/src/api
-        echo "web/src/api is stale: run 'just gen-api' and commit the result"
-        exit 1
-    fi
-
-# Regenerate crates/triage/schema.sql from a freshly migrated database.
+# Regenerate api/schema.sql from a freshly migrated database.
 db-schema:
     scripts/db-schema.sh
 
-# Fail when crates/triage/schema.sql no longer matches the migrations.
+# Fail with a diff when api/schema.sql no longer matches the migrations.
 db-schema-check:
-    cargo nextest run --workspace --locked -E 'test(=schema::schema_dump_is_current)'
+    scripts/db-schema.sh --check
 
 # Regenerate crates/triage/.sqlx, the offline query data the sqlx macros compile against.
 db-prepare:
@@ -138,6 +133,7 @@ loop +args:
 # Apply automatic fixes.
 fix:
     cargo fmt --all
+    cd api && bun run fix
     bun run fix
 
 # Serve the app at localhost:$TRIAGE_DEV_PORT (default 7311): Vite for the UI, proxying /api to the daemon on 7312.
@@ -161,7 +157,7 @@ _dev-run: _dev-server _dev-web
 
 [private]
 _dev-server:
-    TRIAGE_PORT=7312 bacon --headless run-server
+    TRIAGE_PORT=7312 bun --watch api/src/main.ts serve
 
 [private]
 _dev-web:

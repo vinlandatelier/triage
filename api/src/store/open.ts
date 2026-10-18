@@ -1,4 +1,10 @@
-import { constants, Database, type SQLQueryBindings, type Statement } from "bun:sqlite";
+import {
+  constants,
+  Database,
+  SQLiteError,
+  type SQLQueryBindings,
+  type Statement,
+} from "bun:sqlite";
 import { statSync } from "node:fs";
 import { type BunSQLiteDatabase, drizzle } from "drizzle-orm/bun-sqlite";
 import { reason, StoreError } from "./error";
@@ -17,9 +23,9 @@ export type Store = {
   close(): void;
 };
 
+const BUSY_TIMEOUT_MS = 5000;
+
 const PRAGMAS = [
-  "PRAGMA busy_timeout = 5000",
-  "PRAGMA journal_mode = WAL",
   "PRAGMA synchronous = NORMAL",
   "PRAGMA foreign_keys = ON",
   "PRAGMA temp_store = MEMORY",
@@ -35,6 +41,8 @@ export function openStore(
 ): { readonly store: Store; readonly applied: number } {
   const client = connect(file, () => {
     const client = new StoreDatabase(file, { create: true, strict: true });
+    client.run(`PRAGMA busy_timeout = ${BUSY_TIMEOUT_MS}`);
+    setWal(client);
     for (const pragma of PRAGMAS) {
       client.run(pragma);
     }
@@ -131,6 +139,23 @@ class StoreDatabase extends Database {
     }
     this.#statements.clear();
     super.close(throwOnError);
+  }
+}
+
+// Switching a fresh file to WAL needs an exclusive lock, and SQLite answers `SQLITE_BUSY` there
+// without calling the busy handler, so a second process opening at the same time retries here.
+function setWal(client: Database): void {
+  const deadline = Date.now() + BUSY_TIMEOUT_MS;
+  for (;;) {
+    try {
+      client.run("PRAGMA journal_mode = WAL");
+      return;
+    } catch (err) {
+      if (!(err instanceof SQLiteError && err.code === "SQLITE_BUSY") || Date.now() > deadline) {
+        throw err;
+      }
+      Bun.sleepSync(10);
+    }
   }
 }
 

@@ -126,6 +126,8 @@ if [ "$failures" -gt 0 ]; then
 fi
 
 bun install --frozen-lockfile
+# web imports the api's route types from api/types/, which is gitignored; editors need it before any typecheck.
+(cd api && bun run types)
 # The root has no node_modules/.bin under the isolated linker, so bunx would fetch the latest playwright.
 (cd web && bunx playwright install chromium)
 prek install --install-hooks

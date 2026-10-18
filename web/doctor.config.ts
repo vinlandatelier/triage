@@ -5,5 +5,4 @@ import type { ReactDoctorConfig } from "react-doctor/api";
 export default {
   // One network request per dependency would make every run depend on Socket.dev; renovate covers updates.
   supplyChain: { enabled: false },
-  ignore: { files: ["src/api/**"] },
 } satisfies ReactDoctorConfig;

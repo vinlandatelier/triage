@@ -3,6 +3,11 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
+  "exports": {
+    ".": {
+      "types": "./types/http/app.d.ts"
+    }
+  },
   "scripts": {
     "lint": "biome ci",
     "fix": "biome check --write",
@@ -10,7 +15,8 @@
     "test": "bun test",
     "knip": "knip",
     "licenses": "license-checker-rseidelsohn",
-    "db:generate": "drizzle-kit generate"
+    "db:generate": "drizzle-kit generate",
+    "types": "tsc -p tsconfig.types.json"
   },
   "dependencies": {
     "@bomb.sh/tab": "0.0.22",

@@ -26,7 +26,7 @@ jobs:
       - uses: dorny/paths-filter@v3
         id: filter
         with:
-          # openapi.json feeds gen-api.
+          # web typechecks against the api's route types, so api changes run it too.
           filters: |
             api:
               - 'api/**'
@@ -39,8 +39,7 @@ jobs:
               - '.github/workflows/ci.yml'
             web:
               - 'web/**'
-              - 'tools/**'
-              - 'crates/triage/openapi.json'
+              - 'api/**'
               - 'package.json'
               - 'bun.lock'
               - 'bunfig.toml'
@@ -92,7 +91,6 @@ jobs:
           bun-version-file: .bun-version
       - run: bun install --frozen-lockfile
       - run: just check-web
-      - run: just gen-api-check
       - run: just build-web
 
   # The builtin prek file checks, for pushes made without local hooks (the assistant's).

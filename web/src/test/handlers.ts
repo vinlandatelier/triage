@@ -1,3 +1,5 @@
+import type { Problem } from "@triage/api";
+import type { ClientRequestOptions, InferRequestType, InferResponseType } from "hono/client";
 import {
   type DefaultBodyType,
   type HttpResponseResolver,
@@ -5,60 +7,45 @@ import {
   type JsonBodyType,
   type PathParams,
 } from "msw";
-import { client } from "@/api/client.gen";
-import type { Problem } from "@/api/types.gen";
 
-// biome-ignore lint/suspicious/noExplicitAny: matches every generated SDK function signature.
-type Operation = (options: any) => Promise<unknown>;
-type Options<Op extends Operation> = NonNullable<Parameters<Op>[0]>;
-type OrDefault<T, D> = [NonNullable<T>] extends [never] ? D : NonNullable<T>;
+// biome-ignore lint/suspicious/noExplicitAny: matches every client endpoint's argument type.
+type Endpoint = (args: any, options?: ClientRequestOptions) => Promise<unknown>;
+type Args<E extends Endpoint> = InferRequestType<E>;
 
-type ResponseOf<Op extends Operation> =
-  Awaited<ReturnType<Op>> extends { data?: infer D }
-    ? Extract<NonNullable<D>, JsonBodyType>
-    : never;
-type ParamsOf<Op extends Operation> = Extract<
-  OrDefault<Options<Op>["path"], PathParams>,
-  PathParams
->;
-type BodyOf<Op extends Operation> = Extract<
-  OrDefault<Options<Op>["body"], DefaultBodyType>,
-  DefaultBodyType
->;
+type ResponseOf<E extends Endpoint> = Extract<InferResponseType<E>, JsonBodyType>;
+type ParamsOf<E extends Endpoint> =
+  Args<E> extends { param: infer P extends PathParams } ? P : PathParams;
+type BodyOf<E extends Endpoint> =
+  Args<E> extends { json: infer J extends DefaultBodyType } ? J : DefaultBodyType;
 
-const methods = ["get", "post", "put", "patch", "delete", "head", "options"] as const;
+const methods = ["get", "post", "put", "patch", "delete"] as const;
 type Method = (typeof methods)[number];
+const isMethod = (value: string): value is Method => methods.some((m) => m === value);
 
-// The generated types drop `url` and the method, so call the SDK function on a stub client
-// that records them instead of sending a request.
-function routeOf(op: Operation): { method: Method; path: string } {
-  let route: { method: Method; path: string } | undefined;
-  const stub = Object.fromEntries(
-    methods.map((method) => [
-      method,
-      ({ url }: { url: string }) => {
-        route = { method, path: url.replace(/\{(\w+)\}/g, ":$1") };
-        return Promise.resolve();
-      },
-    ]),
-  );
-  void op({ client: stub });
-  if (route === undefined) throw new Error(`${op.name} did not call the client`);
+// Calls the endpoint with a fetch that records the request instead of sending it. The client
+// calls fetch before its first `await`, so this stays synchronous. With no `param`, the URL keeps
+// `:id`, which is MSW's path syntax too.
+function routeOf(endpoint: Endpoint): { method: Method; url: string } {
+  let route: { method: Method; url: string } | undefined;
+  void endpoint(undefined, {
+    fetch: (input: RequestInfo | URL, init?: RequestInit) => {
+      const method = (init?.method ?? "GET").toLowerCase();
+      if (isMethod(method)) route = { method, url: String(input) };
+      return Promise.resolve(new Response());
+    },
+  });
+  if (route === undefined) throw new Error("the endpoint did not call fetch with a known method");
   return route;
 }
 
 /**
- * An MSW handler for a generated SDK function's endpoint, under the client's base URL.
- * The resolver may only return that operation's response or a `Problem`, so a body of the wrong
- * shape fails `tsc`.
+ * An MSW handler for a typed-client endpoint such as `client.api.hello.$get`. The resolver may
+ * only return that route's response or a `Problem`, so a body of the wrong shape fails `tsc`.
  */
-export function mock<Op extends Operation>(
-  op: Op,
-  resolver: HttpResponseResolver<ParamsOf<Op>, BodyOf<Op>, ResponseOf<Op> | Problem>,
+export function mock<E extends Endpoint>(
+  endpoint: E,
+  resolver: HttpResponseResolver<ParamsOf<E>, BodyOf<E>, ResponseOf<E> | Problem>,
 ) {
-  const { method, path } = routeOf(op);
-  return http[method]<ParamsOf<Op>, BodyOf<Op>, ResponseOf<Op> | Problem>(
-    `${client.getConfig().baseUrl}${path}`,
-    resolver,
-  );
+  const { method, url } = routeOf(endpoint);
+  return http[method]<ParamsOf<E>, BodyOf<E>, ResponseOf<E> | Problem>(url, resolver);
 }

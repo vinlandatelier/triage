@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import { createServer, type Server } from "node:net";
 import packageJson from "../../package.json" with { type: "json" };
+import { openTempStore } from "../store/temp";
 import { createApp } from "./app";
 import { probe } from "./probe";
 import { listen } from "./serve";
@@ -17,7 +18,8 @@ function portOf(server: Server): number {
 }
 
 test("reads the version and uptime from the daemon", async () => {
-  const server = listen(0, createApp({ startedAt: performance.now() }).fetch);
+  const { store, dispose } = openTempStore();
+  const server = listen(0, createApp({ startedAt: performance.now(), store }).fetch);
   try {
     expect(await probe(server.port ?? 0)).toEqual({
       status: "ok",
@@ -27,6 +29,7 @@ test("reads the version and uptime from the daemon", async () => {
     });
   } finally {
     void server.stop(true);
+    dispose();
   }
 });
 

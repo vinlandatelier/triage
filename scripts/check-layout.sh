@@ -19,6 +19,15 @@ code_grep() {
     sed -E 's:(^|[^:])//.*$:\1:' "$2" | grep -nE "$1"
 }
 
+# bun test writes `<name>.test.ts` snapshots to `__snapshots__/<name>.test.ts.snap`, with nothing else there.
+snapshots() {
+    [ -d "$1" ] && [ "$(basename "$1")" = __snapshots__ ] || return 1
+    local snap
+    for snap in "$1"/*; do
+        [ -f "$snap" ] && [[ "$(basename "$snap")" == *.test.ts.snap ]] || return 1
+    done
+}
+
 for dir in "$features"/*/; do
     [ -d "$dir" ] || continue
     dir="${dir%/}"
@@ -29,7 +38,7 @@ for dir in "$features"/*/; do
         name="$(basename "$entry")"
         case " $expected " in
             *" $name "*) ;;
-            *) [ -f "$entry" ] && [[ "$name" == *.test.ts ]] || violation "$entry" 2 ;;
+            *) [ -f "$entry" ] && [[ "$name" == *.test.ts ]] || snapshots "$entry" || violation "$entry" 2 ;;
         esac
     done
     if [ -f "$dir/http.ts" ] && code_grep "[\"'](drizzle-orm(/[^\"']*)?|bun:sqlite)[\"']" "$dir/http.ts" >/dev/null; then

@@ -7,7 +7,92 @@ description: Use before writing or changing TypeScript in api/, above all a feat
 
 One way to write each thing in `api/`. Follow the rule; do not weigh alternatives. `docs/ARCHITECTURE.md` holds structure (layout, direction, boundaries) and wins where the two disagree. `api/biome.json` and `api/tsconfig.json` enforce every rule a tool can; this file holds the rest.
 
-The worked example arrives with `api/src/features/hello/` in a later slice. Until then, the rules below are the whole guide.
+`api/src/features/hello/` is the worked example; copy its shape for a new feature. The walk below shows it file by file.
+
+## Worked example: `features/hello/`
+
+A feature is four files plus tests. Direction is `http.ts → service.ts → repo.ts`; `model.ts` is shared.
+
+### `model.ts`: the table and the schemas
+
+```ts
+export const hello = sqliteTable("hello", {
+  id: text("id").primaryKey(),
+  name: text("name").notNull(),
+  createdAt: text("created_at").notNull(),
+  updatedAt: text("updated_at").notNull(),
+}, (table) => [check("hello_name_length", sql`length(${table.name}) BETWEEN 1 AND ...`)]);
+export type HelloRow = typeof hello.$inferSelect;
+
+export const HelloName = z.string(...).trim().superRefine(...);   // one message per failure
+export const HelloSchema = z.object({ id, name, created_at: z.iso.datetime(...) }).openapi("Hello");
+export type Hello = z.infer<typeof HelloSchema>;
+```
+
+- Every table has `id TEXT PRIMARY KEY`, `created_at`, `updated_at`. Columns are camelCase in code, snake_case in SQL. Why: `schema.test.ts` checks every table.
+- A CHECK in the table and the zod schema hold the same bounds. Why: the table is the last line; the schema gives the 422.
+- The view schema is the wire shape, snake_case keys with a `biome-ignore` naming the reason. `.openapi("Name")` names it in the document. Why: the response shapes are the contract the web types read.
+- After a change: `just db-generate`, then `just db-schema`. Name a new migration: `just db-generate --name <slug>`.
+
+### `repo.ts`: Drizzle only
+
+```ts
+export function insertHello(tx: Transaction, row: HelloRow): void { tx.insert(hello).values(row).run(); }
+export function listRecentHellos(store: Store, limit: number): HelloRow[] { ... .orderBy(desc(hello.createdAt), desc(hello.id)).limit(limit).all(); }
+export function findHello(store: Store, id: string): HelloRow | undefined { ... .get() ?? undefined; }
+```
+
+- Writes take the `Transaction` that `store.write` passes; reads take the `Store`. Why: the service owns the transaction.
+- Return `undefined` for a missing row, and turn every `null` column into `undefined`. Why: one absent value in app code.
+- No hono, no zod, no `AppError`. Why: rule 3, and a repo does not know about HTTP.
+
+### `service.ts`: work, spans, and logs
+
+```ts
+export function createHello(store: Store, name: string): HelloRow {
+  return log.withSpan("hello.create", {}, (span) => {
+    const at = toDbTime(now());
+    const row: HelloRow = { id: newId(), name, createdAt: at, updatedAt: at };
+    span.record({ "hello.id": row.id });
+    store.write((tx) => insertHello(tx, row));
+    log.debug("hello created", { "hello.id": row.id });
+    return row;
+  });
+}
+```
+
+- One span per write, `<feature>.<verb>`. Record the new id on the span and log a debug event carrying it. Why: the JSONL file logs no span closes, so the event is how the id reaches it.
+- A lookup returns `undefined`; the handler decides that it is a 404. Why: "missing" is not an error for every caller.
+- Services take already-validated values. Why: validation happens once, at the boundary.
+
+### `http.ts`: one `createRoute` per operation
+
+```ts
+const createHelloRoute = createRoute({
+  method: "post", path: "/api/hello", operationId: "hello_create", tags: ["hello"], summary, description,
+  request: { body: { required: true, content: { "application/json": { schema: CreateHelloSchema } } } },
+  responses: { 201: { description: "The new hello", content: { "application/json": { schema: HelloSchema } } } },
+});
+
+export function createHelloRoutes(deps: HelloDeps) {
+  return createRouter()
+    .openapi(createHelloRoute, (c) => c.json(helloView(createHello(deps.store, c.req.valid("json").name)), 201))
+    .openapi(listHellosRoute, ...)
+    .openapi(getHelloRoute, ...);
+}
+```
+
+- Build on `createRouter()` from `http/router.ts` and chain every `.openapi(...)`. Why: the hook makes the 422, and the chain is what carries the types to `AppType`.
+- `operationId` is `<feature>_<verb>`; paths are the real `/api/...` path with `{param}`. The `Problem` default response is added for you. Why: the document reads the same as the Rust one.
+- Read input only through `c.req.valid(...)`. Throw `AppError` for 4xx (`new AppError("not_found", \`no hello ${id}\`)`). Why: `onError` renders it.
+- Map rows to views here (`helloView`), timestamps through `toRfc3339`. Why: the wire shape is HTTP's concern.
+- `createApp` mounts it: `.route("/", createHelloRoutes(deps))`, chained. Then `cd web && bun run typecheck`: the web reads the new types.
+
+### `hello.test.ts`: the HTTP contract
+
+- `openTempStore()` per test, `createApp({ startedAt, store })`, then `testClient(app)`; dispose in `afterEach`. Why: a fresh file per test, real Drizzle.
+- Snapshot bodies with `id`, `created_at`, `updated_at`, and `instance` redacted. Why: the snapshot pins the shape, not the values.
+- For a status the route does not declare (404, 422), assert with `expect<number>(response.status)`. Why: the client types only the declared statuses.
 
 ## Errors
 
@@ -45,9 +130,9 @@ The worked example arrives with `api/src/features/hello/` in a later slice. Unti
 
 - zod at every trust boundary: env (parsed once at startup), HTTP input, external payloads. Internal calls trust the types. Why: OWASP, validate where data enters.
 - Types come from schemas through `z.infer`, `z.input`, or `z.output`. Never hand-write a type a schema defines. Why: one source of truth.
-- API shapes come from `drizzle-zod` `createInsertSchema`/`createSelectSchema` with refinements. Rows read from our own database are not validated again. Why: the table is the source.
+- Request and view schemas are hand-written zod in `model.ts`, next to the table (`drizzle-zod` is not allowlisted). Rows read from our own database are not validated again. Why: the table's constraints already hold.
 - `safeParse` at boundaries. `parse` only where a failure is a bug. Why: expected failures need no try/catch.
-- `z.strictObject` at boundaries. A dictionary keyed by user input is a `Map` or `Object.create(null)`. Why: unknown fields are rejected and prototype pollution has no target.
+- `z.strictObject` at boundaries, except a request body the Rust build accepted with extra fields (`CreateHello`), which stays `z.object` until the port is done. A dictionary keyed by user input is a `Map` or `Object.create(null)`. Why: unknown fields are rejected and prototype pollution has no target; the contract does not change during the port.
 
 ## Security
 

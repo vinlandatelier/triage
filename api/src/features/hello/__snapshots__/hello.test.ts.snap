@@ -1,0 +1,176 @@
+// Bun Snapshot v1, https://bun.sh/docs/test/snapshots
+
+exports[`create returns 201 with the trimmed name 1`] = `
+{
+  "created_at": "[ts]",
+  "id": "[id]",
+  "name": "world",
+}
+`;
+
+exports[`list returns the 20 newest first 1`] = `
+[
+  {
+    "created_at": "[ts]",
+    "id": "[id]",
+    "name": "hello 24",
+  },
+  {
+    "created_at": "[ts]",
+    "id": "[id]",
+    "name": "hello 23",
+  },
+  {
+    "created_at": "[ts]",
+    "id": "[id]",
+    "name": "hello 22",
+  },
+  {
+    "created_at": "[ts]",
+    "id": "[id]",
+    "name": "hello 21",
+  },
+  {
+    "created_at": "[ts]",
+    "id": "[id]",
+    "name": "hello 20",
+  },
+  {
+    "created_at": "[ts]",
+    "id": "[id]",
+    "name": "hello 19",
+  },
+  {
+    "created_at": "[ts]",
+    "id": "[id]",
+    "name": "hello 18",
+  },
+  {
+    "created_at": "[ts]",
+    "id": "[id]",
+    "name": "hello 17",
+  },
+  {
+    "created_at": "[ts]",
+    "id": "[id]",
+    "name": "hello 16",
+  },
+  {
+    "created_at": "[ts]",
+    "id": "[id]",
+    "name": "hello 15",
+  },
+  {
+    "created_at": "[ts]",
+    "id": "[id]",
+    "name": "hello 14",
+  },
+  {
+    "created_at": "[ts]",
+    "id": "[id]",
+    "name": "hello 13",
+  },
+  {
+    "created_at": "[ts]",
+    "id": "[id]",
+    "name": "hello 12",
+  },
+  {
+    "created_at": "[ts]",
+    "id": "[id]",
+    "name": "hello 11",
+  },
+  {
+    "created_at": "[ts]",
+    "id": "[id]",
+    "name": "hello 10",
+  },
+  {
+    "created_at": "[ts]",
+    "id": "[id]",
+    "name": "hello 9",
+  },
+  {
+    "created_at": "[ts]",
+    "id": "[id]",
+    "name": "hello 8",
+  },
+  {
+    "created_at": "[ts]",
+    "id": "[id]",
+    "name": "hello 7",
+  },
+  {
+    "created_at": "[ts]",
+    "id": "[id]",
+    "name": "hello 6",
+  },
+  {
+    "created_at": "[ts]",
+    "id": "[id]",
+    "name": "hello 5",
+  },
+]
+`;
+
+exports[`unknown and malformed ids are 404 problems: not found 01ARZ3NDEKTSV4RRFFQ69G5FAV 1`] = `
+{
+  "detail": "no hello 01ARZ3NDEKTSV4RRFFQ69G5FAV",
+  "instance": "[request id]",
+  "status": 404,
+  "title": "Not found",
+  "type": "https://triage.studio/problems/not-found",
+}
+`;
+
+exports[`unknown and malformed ids are 404 problems: not found 01JUNK 1`] = `
+{
+  "detail": "no hello 01JUNK",
+  "instance": "[request id]",
+  "status": 404,
+  "title": "Not found",
+  "type": "https://triage.studio/problems/not-found",
+}
+`;
+
+exports[`unknown and malformed ids are 404 problems: not found not-a-ulid 1`] = `
+{
+  "detail": "no hello not-a-ulid",
+  "instance": "[request id]",
+  "status": 404,
+  "title": "Not found",
+  "type": "https://triage.studio/problems/not-found",
+}
+`;
+
+exports[`a blank or missing name is a 422 naming name, and writes no row: invalid empty 1`] = `
+{
+  "detail": "the request is invalid",
+  "errors": [
+    {
+      "field": "name",
+      "message": "must not be empty",
+    },
+  ],
+  "instance": "[request id]",
+  "status": 422,
+  "title": "Validation failed",
+  "type": "https://triage.studio/problems/validation",
+}
+`;
+
+exports[`a blank or missing name is a 422 naming name, and writes no row: invalid missing 1`] = `
+{
+  "detail": "the request is invalid",
+  "errors": [
+    {
+      "field": "name",
+      "message": "must not be empty",
+    },
+  ],
+  "instance": "[request id]",
+  "status": 422,
+  "title": "Validation failed",
+  "type": "https://triage.studio/problems/validation",
+}
+`;

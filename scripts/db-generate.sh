@@ -7,7 +7,7 @@ if ! compgen -G "src/features/*/model.ts" >/dev/null; then
     echo "no src/features/*/model.ts yet; nothing to generate"
     exit 0
 fi
-bun run db:generate
+bun run db:generate "$@"
 # Drizzle cannot emit STRICT. `[^;]*` stops at the statement's end, so a table that already ends
 # in `) STRICT;` is left alone and applied files keep their hash. Rebuild tables (`__new_*`)
 # are CREATE TABLE statements too.

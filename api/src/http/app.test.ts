@@ -7,13 +7,18 @@ import { testClient } from "hono/testing";
 import packageJson from "../../package.json" with { type: "json" };
 import { loadConfig } from "../config";
 import { AppError, BODY_LIMIT, ProblemSchema, problemBody } from "../error";
+import { openTempStore } from "../store/temp";
 import { initTelemetry, type Telemetry } from "../telemetry";
 import { type AppType, createApp, openApiDocument } from "./app";
 
 const open: Telemetry[] = [];
 const temps: string[] = [];
+const stores: (() => void)[] = [];
 
 afterEach(async () => {
+  for (const dispose of stores.splice(0)) {
+    dispose();
+  }
   for (const telemetry of open.splice(0)) {
     await telemetry.close();
   }
@@ -23,7 +28,9 @@ afterEach(async () => {
 });
 
 function app(): AppType {
-  return createApp({ startedAt: performance.now() });
+  const { store, dispose } = openTempStore();
+  stores.push(dispose);
+  return createApp({ startedAt: performance.now(), store });
 }
 
 /** JSON log lines, written to a captured stderr. */

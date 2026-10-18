@@ -19,7 +19,7 @@ setup:
     @TRIAGE_USER_PATH={{ quote(user_path) }} ./scripts/setup.sh
 
 # Run every quality gate.
-check: check-api deny check-layout db-schema-check check-web gen-api-check
+check: check-api deny check-layout db-schema-check check-web
 
 # Lint, typecheck, and test the api package.
 [working-directory('api')]
@@ -71,24 +71,9 @@ build-web:
 build: build-web
     cargo build --release --locked
 
-# Regenerate web/src/api, the typed client, from crates/triage/openapi.json.
-gen-api:
-    bun run gen:api
-
-# Fail when web/src/api no longer matches crates/triage/openapi.json. Staged output passes.
-gen-api-check: gen-api
-    #!/usr/bin/env bash
-    set -euo pipefail
-    untracked="$(git ls-files --others --exclude-standard -- web/src/api)"
-    if ! git diff --quiet -- web/src/api || [ -n "$untracked" ]; then
-        git status --short -- web/src/api
-        echo "web/src/api is stale: run 'just gen-api' and commit the result"
-        exit 1
-    fi
-
 # Generate api/migrations from the feature schemas in api/src/features/*/model.ts, every table STRICT.
-db-generate:
-    scripts/db-generate.sh
+db-generate *args:
+    scripts/db-generate.sh {{args}}
 
 # Regenerate api/schema.sql from a freshly migrated database.
 db-schema:
@@ -172,7 +157,7 @@ _dev-run: _dev-server _dev-web
 
 [private]
 _dev-server:
-    TRIAGE_PORT=7312 bacon --headless run-server
+    TRIAGE_PORT=7312 bun --watch api/src/main.ts serve
 
 [private]
 _dev-web:

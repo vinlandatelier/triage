@@ -104,7 +104,7 @@ export async function serve(config: Config, paths: Paths, signals: Signals): Pro
   const { store } = openStore(dbFile(paths));
   let server: Bun.Server<undefined>;
   try {
-    server = listen(config.port, createApp({ startedAt }).fetch);
+    server = listen(config.port, createApp({ startedAt, store }).fetch);
   } catch (err) {
     store.close();
     throw err;

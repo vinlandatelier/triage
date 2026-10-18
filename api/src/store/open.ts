@@ -4,7 +4,7 @@ import { type BunSQLiteDatabase, drizzle } from "drizzle-orm/bun-sqlite";
 import { reason, StoreError } from "./error";
 import { MIGRATIONS_DIR, migrate } from "./migrate";
 
-type Transaction = Parameters<Parameters<BunSQLiteDatabase["transaction"]>[0]>[0];
+export type Transaction = Parameters<Parameters<BunSQLiteDatabase["transaction"]>[0]>[0];
 
 export type Store = {
   readonly db: BunSQLiteDatabase & { readonly $client: Database };

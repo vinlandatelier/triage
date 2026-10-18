@@ -1,13 +1,15 @@
-import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
+import { createRoute, type OpenAPIHono, z } from "@hono/zod-openapi";
 import type { Context } from "hono";
 import { bodyLimit } from "hono/body-limit";
 import { HTTPException } from "hono/http-exception";
 import { methodNotAllowed } from "hono/method-not-allowed";
-import type { ZodError } from "zod";
 import packageJson from "../../package.json" with { type: "json" };
-import { AppError, BODY_LIMIT, type FieldError, ProblemSchema, problemBody } from "../error";
+import { AppError, BODY_LIMIT, ProblemSchema, problemBody } from "../error";
+import { createHelloRoutes } from "../features/hello/http";
+import type { Store } from "../store/open";
 import { logger } from "../telemetry";
 import { type AppEnv, requestId } from "./request-id";
+import { createRouter } from "./router";
 
 // `bun build --define TRIAGE_COMPILED=true` sets it for the executable; from source it is unset.
 declare const TRIAGE_COMPILED: boolean | undefined;
@@ -15,6 +17,7 @@ declare const TRIAGE_COMPILED: boolean | undefined;
 export type AppDeps = {
   /** `performance.now()` when the server started. */
   readonly startedAt: number;
+  readonly store: Store;
 };
 
 const log = logger("http");
@@ -47,14 +50,7 @@ const healthRoute = createRoute({
 
 /** The daemon's one Hono app. The returned value carries every route's type, for `hc` and tests. */
 export function createApp(deps: AppDeps) {
-  const app = new OpenAPIHono<AppEnv>({
-    defaultHook: (result) => {
-      if (!result.success) {
-        throw validationError(result.error, result.target);
-      }
-      return undefined;
-    },
-  });
+  const app = createRouter();
   app.use(requestId());
   app.use(async (_c, next) => {
     try {
@@ -97,17 +93,19 @@ export function createApp(deps: AppDeps) {
   });
   app.notFound((c) => problemResponse(c, new AppError("not_found", `no route for ${c.req.path}`)));
 
-  const routes = app.openapi(healthRoute, (c) =>
-    c.json(
-      {
-        status: "ok" as const,
-        version: packageJson.version,
-        // biome-ignore lint/style/useNamingConvention: the wire field is snake_case
-        uptime_s: Math.floor((performance.now() - deps.startedAt) / 1000),
-      },
-      200,
-    ),
-  );
+  const routes = app
+    .openapi(healthRoute, (c) =>
+      c.json(
+        {
+          status: "ok" as const,
+          version: packageJson.version,
+          // biome-ignore lint/style/useNamingConvention: the wire field is snake_case
+          uptime_s: Math.floor((performance.now() - deps.startedAt) / 1000),
+        },
+        200,
+      ),
+    )
+    .route("/", createHelloRoutes(deps));
 
   app.openAPIRegistry.register("Problem", ProblemSchema);
   app.openAPIRegistry.registerComponent("responses", "Problem", {
@@ -131,9 +129,13 @@ export function createApp(deps: AppDeps) {
 }
 
 export type AppType = ReturnType<typeof createApp>;
+// For the web app, which imports only this file's types.
+export type { FieldError, Problem } from "../error";
 
 /** The OpenAPI 3.1 document, with the problem response as every operation's `default`. */
-export function openApiDocument(app: OpenAPIHono<AppEnv>) {
+export function openApiDocument(
+  app: OpenAPIHono<AppEnv>,
+): ReturnType<OpenAPIHono["getOpenAPI31Document"]> {
   const doc = app.getOpenAPI31Document({
     openapi: "3.1.0",
     info: { title: "Triage", version: packageJson.version },
@@ -178,17 +180,4 @@ function toAppError(err: Error): AppError {
     }
   }
   return new AppError("internal", "internal error", { cause: err });
-}
-
-const TARGET_FIELDS: Readonly<Record<string, string>> = { json: "body", form: "body" };
-
-function validationError(error: ZodError, target: string): AppError {
-  const errors: FieldError[] = error.issues.map((issue) => ({
-    field:
-      issue.path.length === 0
-        ? (TARGET_FIELDS[target] ?? target)
-        : issue.path.map(String).join("."),
-    message: issue.message,
-  }));
-  return new AppError("validation", "the request is invalid", { errors });
 }
